@@ -173,7 +173,7 @@ const App: React.FC = () => {
       </main>
 
       {/* Mathematical Overlay / Lecture Notes */}
-      <div className="absolute bottom-84 left-12 z-50 pointer-events-none">
+      <div className="absolute bottom-72 left-12 z-50 pointer-events-none">
         <motion.div
           key={STAGES[currentStage].formula}
           initial={{ opacity: 0, x: -20 }}
