@@ -220,12 +220,6 @@ const FeedbackLoop: React.FC = () => {
         {/* A big curved arrow under everything to show "sync back" */}
         <BackSyncArc pulseKey={pulse} />
       </div>
-
-      {/* Formula */}
-      <div className="mt-10 text-xl font-mono text-gray-200">
-        v<sub>u</sub><sup>new</sup> = v<sub>u</sub><sup>old</sup> + η · (v<sub>video</sub> − v<sub>u</sub><sup>old</sup>)
-      </div>
-    </div>
   );
 };
 
