@@ -1,225 +1,382 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Heart, MessageCircle, Share2, User } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Heart, MessageCircle, Share2, User } from "lucide-react";
 
+type Signal = "watch" | "swipe" | "pause" | "like" | "comment";
+
+const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+
+/**
+ * 把 4 个维度映射成右侧坐标轴的四边形：
+ *  - y+ 活跃 (activity)
+ *  - y- 互动 (engagement)
+ *  - x+ 兴趣 (interest)
+ *  - x- 多样 (diversity)
+ */
+function buildPolygonPoints(opts: {
+  cx: number;
+  cy: number;
+  r: number;
+  activity: number; // 0..1
+  engagement: number; // 0..1
+  interest: number; // 0..1
+  diversity: number; // 0..1
+}) {
+  const { cx, cy, r, activity, engagement, interest, diversity } = opts;
+
+  // 上 / 右 / 下 / 左
+  const up = { x: cx, y: cy - r * activity };
+  const right = { x: cx + r * interest, y: cy };
+  const down = { x: cx, y: cy + r * engagement };
+  const left = { x: cx - r * diversity, y: cy };
+
+  return `${up.x},${up.y} ${right.x},${right.y} ${down.x},${down.y} ${left.x},${left.y}`;
+}
+
+const SIGNALS: Signal[] = ["watch", "swipe", "pause", "like", "comment"];
+
+/**
+ * 你想要的：手机行为 → 粒子 → AI Core → 用户特征坐标轴四边形
+ */
 const BehaviorCapture: React.FC = () => {
-  const [activeSignal, setActiveSignal] = useState<string | null>(null);
+  const [activeSignal, setActiveSignal] = useState<Signal | null>(null);
+  const [pulseKey, setPulseKey] = useState(0);
 
+  // 右侧四维度：activity / engagement / interest / diversity
+  const [vec, setVec] = useState({
+    activity: 0.18,
+    engagement: 0.18,
+    interest: 0.18,
+    diversity: 0.18,
+  });
+
+  // 每 2.5s 随机触发一个信号（你也可以换成点击按钮触发）
   useEffect(() => {
-    const signals = ['watch', 'swipe', 'pause', 'like', 'comment'];
     const interval = setInterval(() => {
-      setActiveSignal(signals[Math.floor(Math.random() * signals.length)]);
+      const s = SIGNALS[Math.floor(Math.random() * SIGNALS.length)];
+      setActiveSignal(s);
+      setPulseKey((k) => k + 1);
     }, 2500);
     return () => clearInterval(interval);
   }, []);
 
-  // 让“当前激活信号”映射到“哪个特征卡片应该亮 + 哪一组 embedding 维度应该亮”
-  const signalMeta = useMemo(() => {
-    const map: Record<string, { metric: 'watch' | 'swipe' | 'like' | 'pause' | 'comment'; group: number }> = {
-      watch: { metric: 'watch', group: 0 },
-      swipe: { metric: 'swipe', group: 1 },
-      pause: { metric: 'pause', group: 2 },
-      like: { metric: 'like', group: 3 },
-      comment: { metric: 'comment', group: 4 },
-    };
-    return activeSignal ? map[activeSignal] : null;
+  // 根据信号决定“用户特征四边形”怎么变大/偏移
+  useEffect(() => {
+    const base = 0.18;
+
+    const next = (() => {
+      switch (activeSignal) {
+        case "watch":
+          // 看完：活跃↑ 兴趣↑
+          return { activity: 0.75, engagement: 0.25, interest: 0.72, diversity: 0.30 };
+        case "swipe":
+          // 划走：多样↑（系统尝试打散） 活跃略↑
+          return { activity: 0.50, engagement: 0.22, interest: 0.35, diversity: 0.80 };
+        case "pause":
+          // 停留：兴趣↑ 活跃↑
+          return { activity: 0.70, engagement: 0.20, interest: 0.65, diversity: 0.28 };
+        case "like":
+          // 点赞：互动↑（y-方向更大） 兴趣↑
+          return { activity: 0.55, engagement: 0.78, interest: 0.60, diversity: 0.25 };
+        case "comment":
+          // 评论：互动↑↑ 活跃↑ 兴趣↑
+          return { activity: 0.70, engagement: 0.90, interest: 0.62, diversity: 0.22 };
+        default:
+          return { activity: base, engagement: base, interest: base, diversity: base };
+      }
+    })();
+
+    setVec({
+      activity: clamp01(next.activity),
+      engagement: clamp01(next.engagement),
+      interest: clamp01(next.interest),
+      diversity: clamp01(next.diversity),
+    });
+
+    // 触发后，稍微回落到一个“更真实的”中间态（不是回到完全原点）
+    if (activeSignal) {
+      const t = setTimeout(() => {
+        setVec((v) => ({
+          activity: Math.max(0.22, v.activity * 0.70),
+          engagement: Math.max(0.22, v.engagement * 0.70),
+          interest: Math.max(0.22, v.interest * 0.70),
+          diversity: Math.max(0.22, v.diversity * 0.70),
+        }));
+      }, 1300);
+      return () => clearTimeout(t);
+    }
   }, [activeSignal]);
 
-  const isMetricActive = (metric: string) => signalMeta?.metric === metric;
+  // SVG 坐标轴设置（右侧）
+  const chart = useMemo(() => {
+    const W = 380;
+    const H = 300;
+    const cx = W / 2;
+    const cy = H / 2;
+    const R = 110;
+
+    const idlePts = buildPolygonPoints({
+      cx,
+      cy,
+      r: R,
+      activity: 0.18,
+      engagement: 0.18,
+      interest: 0.18,
+      diversity: 0.18,
+    });
+
+    const livePts = buildPolygonPoints({
+      cx,
+      cy,
+      r: R,
+      activity: vec.activity,
+      engagement: vec.engagement,
+      interest: vec.interest,
+      diversity: vec.diversity,
+    });
+
+    return { W, H, cx, cy, R, idlePts, livePts };
+  }, [vec]);
 
   return (
-    <div className="relative w-full h-full flex flex-col lg:flex-row items-center justify-center gap-12 lg:gap-32 px-12">
-      {/* Smartphone Mockup */}
-      <div className="relative group">
+    <div className="relative w-full h-full flex flex-col lg:flex-row items-center justify-center gap-10 lg:gap-20 px-10">
+      {/* ===== 左：手机 ===== */}
+      <div className="relative">
         <motion.div
-          initial={{ rotateY: -20, rotateX: 10 }}
+          initial={{ rotateY: -18, rotateX: 10 }}
           animate={{ rotateY: 0, rotateX: 0 }}
-          transition={{ duration: 1.5, ease: 'easeOut' }}
+          transition={{ duration: 1.2, ease: "easeOut" }}
           className="relative w-72 h-[580px] bg-[#0a0c10] rounded-[3.5rem] border-[10px] border-[#1f2937] shadow-[0_0_100px_rgba(59,130,246,0.15)] overflow-hidden"
         >
-          {/* Top Notch */}
+          {/* Notch */}
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-7 bg-[#1f2937] rounded-b-3xl z-30" />
 
-          {/* App Interface */}
-          <div className="w-full h-full relative">
-            <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/30 z-10" />
-            <motion.img
-              animate={{ scale: [1, 1.05, 1] }}
-              transition={{ duration: 10, repeat: Infinity }}
-              src="https://images.unsplash.com/photo-1611162617474-5b21e879e113?auto=format&fit=crop&q=80&w=400&h=800"
-              alt="Video Feed"
-              className="w-full h-full object-cover opacity-70"
+          {/* “短视频”画面（用渐变 + 模糊代替真实图，避免外链不稳定） */}
+          <div className="absolute inset-0">
+            <div className="absolute inset-0 bg-gradient-to-b from-[#0b1220] via-[#111827] to-black opacity-90" />
+            <motion.div
+              animate={{ opacity: [0.6, 0.9, 0.6] }}
+              transition={{ duration: 6, repeat: Infinity }}
+              className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(59,130,246,0.35),transparent_55%),radial-gradient(circle_at_70%_70%,rgba(168,85,247,0.25),transparent_55%)]"
             />
+            <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/30" />
+          </div>
 
-            {/* User Overlay */}
-            <div className="absolute bottom-16 left-6 z-20 space-y-3">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center border border-white/20">
-                  <User size={14} />
-                </div>
-                <span className="text-white font-black text-sm tracking-tight">zhiwen_lecture</span>
+          {/* 用户 Overlay */}
+          <div className="absolute bottom-16 left-6 z-20 space-y-3">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center border border-white/20">
+                <User size={14} />
               </div>
-              <p className="text-white/90 text-sm leading-snug max-w-[200px]">
-                正在记录这一秒的微互动... <br />
-                <span className="text-blue-400 font-mono">#RecommendationEngine</span>
-              </p>
+              <span className="text-white font-black text-sm tracking-tight">zhiwen_lecture</span>
             </div>
+            <p className="text-white/90 text-sm leading-snug max-w-[200px]">
+              正在记录这一秒的微互动…
+              <br />
+              <span className="text-blue-400 font-mono">
+                #{activeSignal ?? "capturing"}
+              </span>
+            </p>
+          </div>
 
-            {/* Interaction Buttons */}
-            <div className="absolute right-6 bottom-32 flex flex-col items-center gap-8 z-20">
-              <InteractionIcon active={activeSignal === 'like'} color="text-red-500">
-                <Heart className="fill-current" />
-              </InteractionIcon>
-              <InteractionIcon active={activeSignal === 'comment'} color="text-white">
-                <MessageCircle />
-              </InteractionIcon>
-              <InteractionIcon active={false} color="text-white">
-                <Share2 />
-              </InteractionIcon>
-            </div>
+          {/* 交互按钮（点亮表示触发） */}
+          <div className="absolute right-6 bottom-32 flex flex-col items-center gap-8 z-20">
+            <InteractionIcon active={activeSignal === "like"} color="text-red-500">
+              <Heart className="fill-current" />
+            </InteractionIcon>
+            <InteractionIcon active={activeSignal === "comment"} color="text-white">
+              <MessageCircle />
+            </InteractionIcon>
+            <InteractionIcon active={activeSignal === "swipe" || activeSignal === "pause"} color="text-white">
+              <Share2 />
+            </InteractionIcon>
           </div>
         </motion.div>
 
-        {/* Glowing Reflection Under Phone */}
+        {/* 手机底部光晕 */}
         <div className="absolute -bottom-10 left-1/2 -translate-x-1/2 w-48 h-8 bg-blue-500/20 blur-3xl rounded-full" />
       </div>
 
-      {/* Features Extraction Visualization */}
-      <div className="flex-1 max-w-xl space-y-10">
-        <div className="space-y-4">
-          <h4 className="text-blue-500 font-black tracking-widest text-xs uppercase">
-            Feature Extraction (特征提取)
-          </h4>
-          <div className="h-0.5 w-12 bg-blue-600" />
+      {/* ===== 中：AI Core ===== */}
+      <div className="relative flex flex-col items-center justify-center gap-4">
+        <motion.div
+          animate={{ scale: activeSignal ? [1, 1.06, 1] : 1 }}
+          transition={{ duration: 0.8 }}
+          className="relative w-28 h-28 rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md shadow-[0_0_60px_rgba(59,130,246,0.18)] flex items-center justify-center"
+        >
+          <motion.div
+            animate={{ rotate: [0, 90, 180, 270, 360] }}
+            transition={{ duration: 10, repeat: Infinity, ease: "linear" }}
+            className="absolute inset-4 rounded-xl border border-blue-500/30"
+          />
+          <div className="text-xs font-mono text-blue-300 tracking-widest">AI CORE</div>
+
+          {/* 核心发光 */}
+          <motion.div
+            animate={activeSignal ? { opacity: [0.2, 0.55, 0.2] } : { opacity: 0.15 }}
+            transition={{ duration: 1.2, repeat: Infinity }}
+            className="absolute inset-0 rounded-2xl bg-[radial-gradient(circle,rgba(59,130,246,0.35),transparent_60%)]"
+          />
+        </motion.div>
+
+        <div className="text-[11px] text-gray-400 font-mono tracking-widest uppercase">
+          signals → embedding
+        </div>
+      </div>
+
+      {/* ===== 右：用户特征坐标轴（菱形→四边形） ===== */}
+      <div className="relative">
+        <div className="text-blue-500 font-black tracking-widest text-xs uppercase mb-3">
+          User Representation (用户特征)
         </div>
 
-        {/* 让卡片更“像源头”：激活时右侧出现 → */}
-        <div className="space-y-4">
-          <CaptureMetric
-            label="视频完播度"
-            val="0.94"
-            active={isMetricActive('watch')}
-            showArrow={isMetricActive('watch')}
-          />
-          <CaptureMetric
-            label="划动加速度"
-            val="0.12s"
-            active={isMetricActive('swipe')}
-            showArrow={isMetricActive('swipe')}
-          />
-          <CaptureMetric
-            label="互动概率"
-            val="TRUE"
-            active={isMetricActive('like')}
-            showArrow={isMetricActive('like')}
-          />
-        </div>
-
-        {/* Floating Data stream into vector (more explicit) */}
-        <div className="relative h-40 glass rounded-2xl border border-white/5 px-6 py-5 overflow-hidden">
-          <div className="flex items-center justify-between">
-            <div className="text-[9px] font-mono text-gray-500 uppercase tracking-widest">
-              Signals → Features → Embedding (Real-time)
-            </div>
-            <div className="text-[9px] font-mono text-blue-400 uppercase tracking-widest">
-              active: {activeSignal ?? '...'}
-            </div>
+        <div className="relative w-[420px] h-[340px] rounded-3xl border border-white/10 bg-white/5 backdrop-blur-md overflow-hidden">
+          {/* 轴标签 */}
+          <div className="absolute top-4 left-0 w-full text-center text-[11px] text-gray-300/80 font-mono">
+            活跃 (Y+)
+          </div>
+          <div className="absolute bottom-4 left-0 w-full text-center text-[11px] text-gray-300/80 font-mono">
+            互动 (Y-)
+          </div>
+          <div className="absolute top-1/2 -translate-y-1/2 right-4 text-[11px] text-gray-300/80 font-mono">
+            兴趣 (X+)
+          </div>
+          <div className="absolute top-1/2 -translate-y-1/2 left-4 text-[11px] text-gray-300/80 font-mono">
+            多样 (X-)
           </div>
 
-          {/* 1) Signal chips (source) */}
-          <div className="mt-3 flex items-center gap-2">
-            {[
-              { id: 'watch', label: 'watch' },
-              { id: 'swipe', label: 'swipe' },
-              { id: 'pause', label: 'pause' },
-              { id: 'like', label: 'like' },
-              { id: 'comment', label: 'comment' },
-            ].map((s) => (
-              <motion.div
-                key={s.id}
-                animate={activeSignal === s.id ? { scale: 1.05, opacity: 1 } : { scale: 1, opacity: 0.45 }}
-                className={`px-2 py-1 rounded-lg border text-[10px] font-mono tracking-tight ${
-                  activeSignal === s.id
-                    ? 'border-blue-500/60 bg-blue-600/20 text-blue-200'
-                    : 'border-white/10 bg-white/5 text-gray-400'
-                }`}
-              >
-                {s.label}
-              </motion.div>
-            ))}
-          </div>
+          {/* 坐标轴 + 四边形 */}
+          <svg
+            width={chart.W}
+            height={chart.H}
+            viewBox={`0 0 ${chart.W} ${chart.H}`}
+            className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+          >
+            <defs>
+              <filter id="glow">
+                <feGaussianBlur stdDeviation="3.5" result="coloredBlur" />
+                <feMerge>
+                  <feMergeNode in="coloredBlur" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
+            </defs>
 
-          {/* 2) Data stream particles (cause -> effect) */}
-          <div className="relative mt-4 h-10 overflow-hidden">
-            <div className="absolute left-0 top-1/2 -translate-y-1/2 text-[10px] font-mono text-gray-500">
-              feature stream
-            </div>
+            {/* 轴线 */}
+            <line x1={chart.cx} y1={30} x2={chart.cx} y2={chart.H - 30} stroke="rgba(255,255,255,0.15)" strokeWidth="1" />
+            <line x1={30} y1={chart.cy} x2={chart.W - 30} y2={chart.cy} stroke="rgba(255,255,255,0.15)" strokeWidth="1" />
 
-            <div className="absolute left-28 right-44 top-1/2 -translate-y-1/2 h-px bg-white/10" />
+            {/* 中心小菱形（无行为） */}
+            <motion.polygon
+              points={chart.idlePts}
+              fill="rgba(59,130,246,0.12)"
+              stroke="rgba(59,130,246,0.45)"
+              strokeWidth="1.5"
+              filter="url(#glow)"
+              animate={{ opacity: activeSignal ? 0.15 : 0.9 }}
+              transition={{ duration: 0.4 }}
+            />
 
+            {/* 行为触发后的四边形（变大/偏移） */}
+            <motion.polygon
+              points={chart.livePts}
+              fill="rgba(59,130,246,0.22)"
+              stroke="rgba(59,130,246,0.85)"
+              strokeWidth="2"
+              filter="url(#glow)"
+              animate={{ opacity: activeSignal ? 1 : 0.0 }}
+              transition={{ duration: 0.35 }}
+            />
+
+            {/* 放射线（触发时） */}
             <AnimatePresence>
-              {[...Array(10)].map((_, i) => (
-                <motion.div
-                  key={`${activeSignal}-${i}`}
-                  initial={{ opacity: 0, x: 0 }}
-                  animate={{ opacity: 1, x: 300 }}
+              {activeSignal && (
+                <motion.g
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 0.65 }}
                   exit={{ opacity: 0 }}
-                  transition={{ duration: 1.1, delay: i * 0.08, ease: 'easeOut' }}
-                  className={`absolute left-28 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full ${
-                    activeSignal ? 'bg-blue-400' : 'bg-gray-600'
-                  }`}
-                  style={{
-                    filter: activeSignal ? 'drop-shadow(0 0 10px rgba(59,130,246,0.7))' : 'none',
-                  }}
-                />
-              ))}
+                >
+                  {[...Array(12)].map((_, i) => {
+                    const angle = (Math.PI * 2 * i) / 12;
+                    const x2 = chart.cx + Math.cos(angle) * (chart.R + 35);
+                    const y2 = chart.cy + Math.sin(angle) * (chart.R + 35);
+                    return (
+                      <motion.line
+                        key={i}
+                        x1={chart.cx}
+                        y1={chart.cy}
+                        x2={x2}
+                        y2={y2}
+                        stroke="rgba(59,130,246,0.25)"
+                        strokeWidth="1"
+                        initial={{ pathLength: 0 }}
+                        animate={{ pathLength: 1 }}
+                        transition={{ duration: 0.45, delay: i * 0.02 }}
+                      />
+                    );
+                  })}
+                </motion.g>
+              )}
             </AnimatePresence>
+          </svg>
 
-            {/* Arrow head */}
-            <div className="absolute right-44 top-1/2 -translate-y-1/2 w-0 h-0 border-y-[6px] border-y-transparent border-l-[10px] border-l-white/20" />
-          </div>
-
-          {/* 3) Embedding vector (result) */}
-          <div className="mt-2 flex items-center gap-4">
-            <div className="w-36">
-              <div className="text-[10px] font-mono text-gray-500">embedding</div>
-              <div className="text-[9px] font-mono text-gray-600">dim: 1024 (visualized)</div>
-            </div>
-
-            {/* vector bars */}
-            <div className="flex-1 grid grid-cols-16 gap-1">
-              {[...Array(32)].map((_, k) => {
-                // ✅ 修 bug：把 32 根平均分成 5 组（0..4），不会出现第 6 组
-                const dimGroup = Math.floor((k * 5) / 32); // 0..4
-                const isHot = signalMeta ? signalMeta.group === dimGroup : false;
-
-                return (
-                  <motion.div
-                    key={k}
-                    animate={{ height: isHot ? 22 : 10, opacity: isHot ? 1 : 0.35 }}
-                    transition={{ duration: 0.35 }}
-                    className={`rounded-sm ${isHot ? 'bg-blue-400' : 'bg-white/15'}`}
-                    style={{
-                      filter: isHot ? 'drop-shadow(0 0 8px rgba(59,130,246,0.65))' : 'none',
-                    }}
-                  />
-                );
-              })}
-            </div>
-
-            {/* status badge */}
-            <motion.div
-              animate={activeSignal ? { scale: [1, 1.03, 1] } : { scale: 1 }}
-              transition={{ duration: 1.2, repeat: Infinity }}
-              className="ml-2 bg-blue-600/20 px-3 py-2 rounded-lg border border-blue-500/30"
-            >
-              <div className="text-[10px] font-mono text-blue-300">VECTORIZED</div>
-              <div className="text-[9px] font-mono text-gray-400">ms-level update</div>
-            </motion.div>
+          {/* 右下角小注释 */}
+          <div className="absolute bottom-4 right-5 text-[10px] text-gray-400 font-mono">
+            embedding update: ms-level
           </div>
         </div>
       </div>
+
+      {/* ===== 粒子层：手机 → AI Core → 坐标轴 ===== */}
+      <div className="pointer-events-none absolute inset-0">
+        <AnimatePresence>
+          {activeSignal && (
+            <Particles
+              key={pulseKey} // 每次触发重新播一遍
+            />
+          )}
+        </AnimatePresence>
+      </div>
     </div>
+  );
+};
+
+/** 粒子动画：用屏幕百分比定位，适配不同分辨率（你也可微调 start/core/end 的位置） */
+const Particles: React.FC = () => {
+  // 起点：手机中部偏右；中点：AI Core；终点：右侧坐标轴中心
+  const start = { x: "32%", y: "48%" };
+  const core = { x: "52%", y: "48%" };
+  const end = { x: "77%", y: "50%" };
+
+  const dots = Array.from({ length: 16 });
+
+  return (
+    <>
+      {dots.map((_, i) => (
+        <motion.div
+          key={i}
+          className="absolute w-2 h-2 rounded-full bg-blue-400"
+          style={{
+            left: start.x,
+            top: start.y,
+            filter: "drop-shadow(0 0 10px rgba(59,130,246,0.75))",
+          }}
+          initial={{ opacity: 0, scale: 0.6 }}
+          animate={{
+            opacity: [0, 1, 1, 0],
+            scale: [0.6, 1, 1, 0.7],
+            left: [start.x, core.x, end.x],
+            top: [start.y, core.y, end.y],
+          }}
+          exit={{ opacity: 0 }}
+          transition={{
+            duration: 1.15,
+            delay: i * 0.03,
+            ease: "easeInOut",
+          }}
+        />
+      ))}
+    </>
   );
 };
 
@@ -229,50 +386,11 @@ const InteractionIcon: React.FC<{ active: boolean; children: React.ReactNode; co
   color,
 }) => (
   <motion.div
-    animate={active ? { scale: 1.5, filter: 'drop-shadow(0 0 10px currentColor)' } : { scale: 1 }}
+    animate={active ? { scale: 1.5, filter: "drop-shadow(0 0 12px currentColor)" } : { scale: 1 }}
+    transition={{ duration: 0.25 }}
     className={`${color} transition-all duration-300`}
   >
     {children}
-  </motion.div>
-);
-
-const CaptureMetric: React.FC<{ label: string; val: string; active: boolean; showArrow?: boolean }> = ({
-  label,
-  val,
-  active,
-  showArrow,
-}) => (
-  <motion.div
-    animate={{
-      x: active ? 20 : 0,
-      backgroundColor: active ? 'rgba(37, 99, 235, 0.1)' : 'rgba(255, 255, 255, 0.02)',
-      borderColor: active ? 'rgba(37, 99, 235, 0.5)' : 'rgba(255, 255, 255, 0.05)',
-    }}
-    className="relative flex justify-between items-center p-5 rounded-2xl border transition-all duration-300 overflow-hidden"
-  >
-    <div className="flex items-center gap-4">
-      <div className={`w-2 h-2 rounded-full ${active ? 'bg-blue-500 animate-ping' : 'bg-gray-700'}`} />
-      <span className={`font-bold ${active ? 'text-white' : 'text-gray-500'}`}>{label}</span>
-    </div>
-
-    <div className="flex items-center gap-4">
-      <span className="font-mono text-blue-400 font-bold tracking-tighter text-xl">{val}</span>
-
-      {/* ✅ 激活时显示一个很直观的“输出箭头”，像“把特征写进 embedding” */}
-      <AnimatePresence>
-        {showArrow && (
-          <motion.div
-            initial={{ opacity: 0, x: -6 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -6 }}
-            className="text-blue-400 font-black"
-            style={{ filter: 'drop-shadow(0 0 8px rgba(59,130,246,0.65))' }}
-          >
-            →
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
   </motion.div>
 );
 
