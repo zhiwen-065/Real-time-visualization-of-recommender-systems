@@ -95,7 +95,7 @@ const StrategyIntervention: React.FC = () => {
         </div>
 
         {/* Floating Indicator */}
-        <div className="absolute -bottom-6 -right-6 glass px-6 py-4 rounded-2xl border-2 border-blue-500/50 flex items-center gap-4">
+        <div className="absolute -bottom-12 -right-6 glass px-6 py-4 rounded-2xl border-2 border-blue-500/50 flex items-center gap-4">
           <div className="text-xs font-bold text-gray-400 uppercase">Algorithm Output Influenced by Human Strategy</div>
           <div className="text-blue-500 font-black">ACTIVE</div>
         </div>
