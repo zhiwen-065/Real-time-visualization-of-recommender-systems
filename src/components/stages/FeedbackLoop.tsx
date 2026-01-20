@@ -82,8 +82,8 @@ const FeedbackLoop: React.FC = () => {
           ))}
         </svg>
 
-        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-          <div className="mt-[400px] text-center space-y-4 max-w-md">
+        <div className="absolute inset-0 flex flex-col items-center pointer-events-none">
+          <div className="absolute top-[65%] text-center space-y-4 max-w-md">
             <h3 className="text-3xl font-black italic tracking-tighter">实时进化，永无止境</h3>
             <p className="text-gray-500 font-medium">每一次滑动手势都在这一秒内改变了下一秒看到的推荐</p>
           </div>
