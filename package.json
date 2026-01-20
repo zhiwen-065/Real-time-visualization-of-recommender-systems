@@ -9,15 +9,15 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "react": "^18.x",
-    "react-dom": "^18.x",
-    "framer-motion": "^10.x",
-    "lucide-react": "^0.x"
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "framer-motion": "^10.18.0",
+    "lucide-react": "^0.263.1"
   },
   "devDependencies": {
-    "vite": "^5.x",
-    "@vitejs/plugin-react": "^4.x",
-    "typescript": "^5.x"
+    "vite": "^5.0.0",
+    "@vitejs/plugin-react": "^4.2.0",
+    "typescript": "^5.0.0"
     
   }
 }
