@@ -173,12 +173,12 @@ const App: React.FC = () => {
       </main>
 
       {/* Mathematical Overlay / Lecture Notes */}
-      <div className="absolute bottom-12 left-96 z-50 pointer-events-none">
+      <div className="absolute bottom-2 left-12 z-50 pointer-events-none">
         <motion.div
           key={STAGES[currentStage].formula}
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
-          className="bg-black/40 backdrop-blur-md border border-white/10 p-4 rounded-xl font-mono text-sm"
+          className="bg-black/40 backdrop-blur-md border border-white/10 p-3 rounded-lg font-mono text-xs"
         >
           <div className="text-blue-500 font-bold mb-1 opacity-70">ALGORITHM LOGIC:</div>
           <div className="text-gray-100">{STAGES[currentStage].formula}</div>
