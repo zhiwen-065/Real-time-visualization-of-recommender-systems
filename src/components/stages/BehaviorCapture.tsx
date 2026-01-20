@@ -78,33 +78,131 @@ const BehaviorCapture: React.FC = () => {
           <CaptureMetric label="互动概率" val="TRUE" active={activeSignal === 'like'} />
         </div>
 
-        {/* Floating Data stream into vector */}
-        <div className="relative h-32 glass rounded-2xl border border-white/5 flex items-center px-6 overflow-hidden">
-           <div className="absolute top-3 left-6 text-[9px] font-mono text-gray-500 uppercase tracking-widest">Generating Real-time Embeddings</div>
-           
-           <div className="flex gap-3 overflow-hidden">
-             <AnimatePresence>
-               {[...Array(12)].map((_, i) => (
-                 <motion.div
-                   key={i}
-                   initial={{ opacity: 0, x: -10 }}
-                   animate={{ opacity: 1, x: 0 }}
-                   transition={{ delay: i * 0.1 }}
-                   className="flex flex-col gap-1"
-                 >
-                   {[...Array(3)].map((_, j) => (
-                     <div key={j} className="w-1.5 h-1.5 rounded-full bg-blue-500/40 animate-pulse" style={{ animationDelay: `${(i+j)*0.2}s` }} />
-                   ))}
-                 </motion.div>
-               ))}
-             </AnimatePresence>
-           </div>
-           
-           <div className="ml-auto bg-blue-600/20 p-3 rounded-lg border border-blue-500/30 flex items-center gap-3">
-              <div className="text-xs font-mono text-blue-400">Dim: 1024</div>
-              <div className="w-px h-4 bg-blue-500/20" />
-              <div className="text-xs font-black text-white">VECTORIZED</div>
-           </div>
+        {/* Floating Data stream into vector (more explicit) */}
+<div className="relative h-40 glass rounded-2xl border border-white/5 px-6 py-5 overflow-hidden">
+  <div className="flex items-center justify-between">
+    <div className="text-[9px] font-mono text-gray-500 uppercase tracking-widest">
+      Signals → Features → Embedding (Real-time)
+    </div>
+    <div className="text-[9px] font-mono text-blue-400 uppercase tracking-widest">
+      active: {activeSignal ?? '...'}
+    </div>
+  </div>
+
+  {/* 1) Signal chips (source) */}
+  <div className="mt-3 flex items-center gap-2">
+    {[
+      { id: 'watch', label: 'watch' },
+      { id: 'swipe', label: 'swipe' },
+      { id: 'pause', label: 'pause' },
+      { id: 'like', label: 'like' },
+      { id: 'comment', label: 'comment' },
+    ].map((s) => (
+      <motion.div
+        key={s.id}
+        animate={
+          activeSignal === s.id
+            ? { scale: 1.05, opacity: 1 }
+            : { scale: 1, opacity: 0.45 }
+        }
+        className={`px-2 py-1 rounded-lg border text-[10px] font-mono tracking-tight ${
+          activeSignal === s.id
+            ? 'border-blue-500/60 bg-blue-600/20 text-blue-200'
+            : 'border-white/10 bg-white/5 text-gray-400'
+        }`}
+      >
+        {s.label}
+      </motion.div>
+    ))}
+  </div>
+
+  {/* 2) Data stream particles (cause -> effect) */}
+  <div className="relative mt-4 h-10 overflow-hidden">
+    <div className="absolute left-0 top-1/2 -translate-y-1/2 text-[10px] font-mono text-gray-500">
+      feature stream
+    </div>
+
+    <div className="absolute left-28 right-44 top-1/2 -translate-y-1/2 h-px bg-white/10" />
+
+    <AnimatePresence>
+      {[...Array(10)].map((_, i) => (
+        <motion.div
+          key={`${activeSignal}-${i}`}
+          initial={{ opacity: 0, x: 0 }}
+          animate={{ opacity: 1, x: 320 }}
+          exit={{ opacity: 0 }}
+          transition={{
+            duration: 1.2,
+            delay: i * 0.08,
+            ease: 'easeOut',
+          }}
+          className={`absolute left-28 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full ${
+            activeSignal ? 'bg-blue-400' : 'bg-gray-600'
+          }`}
+          style={{
+            filter:
+              activeSignal ? 'drop-shadow(0 0 10px rgba(59,130,246,0.7))' : 'none',
+          }}
+        />
+      ))}
+    </AnimatePresence>
+
+    {/* Arrow head */}
+    <div className="absolute right-44 top-1/2 -translate-y-1/2 w-0 h-0 border-y-[6px] border-y-transparent border-l-[10px] border-l-white/20" />
+  </div>
+
+  {/* 3) Embedding vector (result) */}
+  <div className="mt-2 flex items-center gap-4">
+    <div className="w-36">
+      <div className="text-[10px] font-mono text-gray-500">embedding</div>
+      <div className="text-[9px] font-mono text-gray-600">dim: 1024 (visualized)</div>
+    </div>
+
+    {/* vector bars */}
+    <div className="flex-1 grid grid-cols-16 gap-1">
+      {[...Array(32)].map((_, k) => {
+        // make different signals light different dimensions
+        const group =
+          activeSignal === 'watch' ? 0 :
+          activeSignal === 'swipe' ? 1 :
+          activeSignal === 'pause' ? 2 :
+          activeSignal === 'like' ? 3 :
+          activeSignal === 'comment' ? 4 : -1;
+
+        // 32 dims split into 5 groups (approx)
+        const dimGroup = Math.floor(k / 7); // 0..4
+        const isHot = group === dimGroup;
+
+        return (
+          <motion.div
+            key={k}
+            animate={{
+              height: isHot ? 22 : 10,
+              opacity: isHot ? 1 : 0.35,
+            }}
+            transition={{ duration: 0.35 }}
+            className={`rounded-sm ${
+              isHot ? 'bg-blue-400' : 'bg-white/15'
+            }`}
+            style={{
+              filter: isHot ? 'drop-shadow(0 0 8px rgba(59,130,246,0.65))' : 'none',
+            }}
+          />
+        );
+      })}
+    </div>
+
+    {/* status badge */}
+    <motion.div
+      animate={activeSignal ? { scale: [1, 1.03, 1] } : { scale: 1 }}
+      transition={{ duration: 1.2, repeat: Infinity }}
+      className="ml-2 bg-blue-600/20 px-3 py-2 rounded-lg border border-blue-500/30"
+    >
+      <div className="text-[10px] font-mono text-blue-300">VECTORIZED</div>
+      <div className="text-[9px] font-mono text-gray-400">ms-level update</div>
+    </motion.div>
+  </div>
+</div>
         </div>
       </div>
     </div>
