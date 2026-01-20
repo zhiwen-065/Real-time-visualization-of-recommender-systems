@@ -1,103 +1,389 @@
-
-import React, { useState } from 'react';
-// Added AnimatePresence to the imports from framer-motion
+import React, { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings, ShieldCheck, TrendingUp, UserPlus, Globe } from 'lucide-react';
+import { ShieldCheck, TrendingUp } from 'lucide-react';
+
+type Candidate = {
+  id: number;
+  title: string;
+  base: number; // 0~100
+};
+
+type ScoredCandidate = Candidate & {
+  biz: number;   // -1~1
+  eco: number;   // -1~1
+  final: number; // 0~100
+};
+
+const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
+const round1 = (v: number) => Math.round(v * 10) / 10;
 
 const StrategyIntervention: React.FC = () => {
-  const [activeTab, setActiveTab] = useState(0);
+  // 1) 左侧候选（你可替换 title / base 为你想要的）
+  const candidates: Candidate[] = useMemo(
+    () => [
+      { id: 1, title: '候选 1', base: 62.4 },
+      { id: 2, title: '候选 2', base: 71.8 },
+      { id: 3, title: '候选 3', base: 55.2 },
+      { id: 4, title: '候选 4', base: 66.7 },
+      { id: 5, title: '候选 5', base: 49.9 },
+      { id: 6, title: '候选 6', base: 60.3 },
+    ],
+    []
+  );
 
-  const strategies = [
-    { title: '节日/季节加权', desc: '根据当前节假日实时提升相关内容曝光量', icon: <TrendingUp className="w-6 h-6" />, val: '+25%' },
-    { title: '新作者保护', desc: '确保初次投稿的优质创作者获得基础流量包', icon: <UserPlus className="w-6 h-6" />, val: 'Enabled' },
-    { title: '地域相关性', desc: '优先分发同城或具有强地域属性的优质内容', icon: <Globe className="w-6 h-6" />, val: 'Local-High' },
-    { title: '生态价值观治理', desc: '剔除低俗/标题党，对优质原创内容给予扶持', icon: <ShieldCheck className="w-6 h-6" />, val: 'Monitoring' },
-  ];
+  // 2) 当前“正在过策略层”的候选
+  const [activeIdx, setActiveIdx] = useState(0);
+
+  // 3) 用一个节拍让它自动演示（每 2.2s 换一个候选）
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setActiveIdx((i) => (i + 1) % candidates.length);
+    }, 2200);
+    return () => clearInterval(interval);
+  }, [candidates.length]);
+
+  // 4) 一个时间变量，让商业/生态打分看起来在“动态计算”
+  const [t, setT] = useState(0);
+  useEffect(() => {
+    const tick = setInterval(() => setT((x) => x + 1), 250);
+    return () => clearInterval(tick);
+  }, []);
+
+  const weights = { biz: 10, eco: 8 }; // 商业、生态影响权重（你可调大/调小）
+
+  // 5) 生成每个候选的商业/生态分（-1~1），并得到最终分
+  const scored: ScoredCandidate[] = useMemo(() => {
+    return candidates.map((c) => {
+      const phase = c.id * 0.9;
+      const biz = Math.sin(t / 4 + phase) * 0.8; // [-0.8, 0.8]
+      const eco = Math.cos(t / 5 + phase) * 0.8; // [-0.8, 0.8]
+      const final = clamp(c.base + weights.biz * biz + weights.eco * eco, 0, 100);
+      return { ...c, biz, eco, final };
+    });
+  }, [candidates, t]);
+
+  const active = candidates[activeIdx];
+  const activeScore = scored.find((x) => x.id === active.id)!;
+
+  // 6) 最终排序（右侧）
+  const sorted = useMemo(() => {
+    return [...scored].sort((a, b) => b.final - a.final);
+  }, [scored]);
+
+  // 7) 指针角度：把 [-1..1] 映射到 [-60..60] 度（可理解为“方向/力度”）
+  const bizAngle = activeScore.biz * 60;
+  const ecoAngle = activeScore.eco * 60;
 
   return (
-    <div className="w-full h-full flex flex-col items-center justify-center">
-      <div className="relative w-full max-w-5xl">
-        {/* The Strategy Control HUD */}
-        <div className="glass rounded-[2rem] border-2 border-blue-500/30 overflow-hidden relative shadow-[0_0_50px_rgba(59,130,246,0.2)]">
-          <div className="bg-blue-600/20 px-8 py-4 flex items-center justify-between border-b border-white/10">
+    <div className="w-full h-full flex items-center justify-center px-10">
+      <div className="w-full max-w-6xl">
+        <div className="glass rounded-[2rem] border border-white/10 overflow-hidden shadow-[0_0_70px_rgba(236,72,153,0.12)]">
+          {/* Header */}
+          <div className="px-8 py-5 flex items-center justify-between border-b border-white/10 bg-black/30">
             <div className="flex items-center gap-3">
-              <Settings className="text-blue-500 animate-spin-slow" />
-              <h3 className="font-black tracking-widest text-lg uppercase">策略干预层 (Human Strategy Layer)</h3>
+              <div className="w-10 h-10 rounded-2xl bg-pink-500/15 border border-pink-500/25 flex items-center justify-center">
+                <ShieldCheck className="w-5 h-5 text-pink-400" />
+              </div>
+              <div>
+                <div className="text-xl font-black tracking-tight text-white">策略干预：商业与生态的博弈</div>
+                <div className="text-[11px] font-mono tracking-widest text-gray-500 uppercase">
+                  candidates → strategy layer → final ranking
+                </div>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-              <span className="text-xs text-green-500 font-bold uppercase">Manual Override Active</span>
+
+            <div className="flex items-center gap-3">
+              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+              <span className="text-[11px] font-mono text-green-400 tracking-widest uppercase">Live</span>
             </div>
           </div>
 
-          <div className="flex flex-col lg:flex-row h-[450px]">
-            {/* Sidebar Controls */}
-            <div className="w-full lg:w-80 border-r border-white/10 bg-black/40 flex flex-col">
-              {strategies.map((s, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => setActiveTab(idx)}
-                  className={`p-6 text-left flex items-start gap-4 transition-all border-b border-white/5 ${
-                    activeTab === idx ? 'bg-blue-600/20 border-l-4 border-l-blue-500' : 'hover:bg-white/5'
-                  }`}
-                >
-                  <div className={activeTab === idx ? 'text-blue-500' : 'text-gray-500'}>{s.icon}</div>
-                  <div>
-                    <div className={`font-bold text-sm ${activeTab === idx ? 'text-white' : 'text-gray-400'}`}>{s.title}</div>
-                    <div className="text-[10px] text-gray-500 mt-1 uppercase font-mono">{s.val}</div>
-                  </div>
-                </button>
-              ))}
+          {/* Main */}
+          <div className="relative grid grid-cols-12 min-h-[520px] bg-[#030712]">
+            {/* Left: Candidates */}
+            <div className="col-span-12 lg:col-span-4 p-8 border-b lg:border-b-0 lg:border-r border-white/10">
+              <div className="flex items-center justify-between mb-6">
+                <div className="text-sm font-black text-gray-200">候选内容</div>
+                <div className="text-[10px] font-mono text-gray-500 uppercase tracking-widest">base score</div>
+              </div>
+
+              <div className="space-y-3">
+                {candidates.map((c, idx) => {
+                  const isActive = idx === activeIdx;
+                  return (
+                    <div
+                      key={c.id}
+                      className={`rounded-2xl border p-4 transition-all ${
+                        isActive
+                          ? 'border-pink-500/50 bg-pink-500/10 shadow-[0_0_25px_rgba(236,72,153,0.18)]'
+                          : 'border-white/10 bg-white/5 hover:bg-white/7'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="font-bold text-white">{c.title}</div>
+                        <div className="text-[12px] font-mono text-gray-200">{round1(c.base)}</div>
+                      </div>
+
+                      <div className="mt-3 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-cyan-400/80 to-blue-500/80"
+                          style={{ width: `${clamp(c.base, 0, 100)}%` }}
+                        />
+                      </div>
+
+                      <div className="mt-3 text-[10px] font-mono text-gray-500 uppercase tracking-widest">
+                        input to strategy layer
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
 
-            {/* Main Visualizer */}
-            <div className="flex-1 p-8 relative flex items-center justify-center overflow-hidden">
-               <AnimatePresence mode="wait">
-                 <motion.div
-                  key={activeTab}
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.9 }}
-                  className="text-center space-y-6 max-w-md z-10"
-                 >
-                   <div className="w-20 h-20 bg-blue-500/20 rounded-full flex items-center justify-center mx-auto text-blue-500 shadow-xl shadow-blue-500/10">
-                     {strategies[activeTab].icon}
-                   </div>
-                   <h4 className="text-3xl font-bold">{strategies[activeTab].title}</h4>
-                   <p className="text-gray-400 text-lg leading-relaxed">{strategies[activeTab].desc}</p>
-                   
-                   <div className="pt-8">
-                     <div className="text-xs text-gray-500 font-bold uppercase mb-4">权重调整系数</div>
-                     <div className="flex items-center gap-4">
-                       <span className="text-xs font-mono text-gray-500">0.0</span>
-                       <div className="flex-1 h-1.5 bg-gray-800 rounded-full relative">
-                         <motion.div 
-                          initial={{ width: 0 }}
-                          animate={{ width: '75%' }}
-                          className="h-full bg-blue-500 rounded-full" 
-                        />
-                         <div className="absolute right-[25%] top-1/2 -translate-y-1/2 w-4 h-4 bg-white rounded-full shadow-lg" />
-                       </div>
-                       <span className="text-xs font-mono text-blue-400">2.0</span>
-                     </div>
-                   </div>
-                 </motion.div>
-               </AnimatePresence>
+            {/* Middle: Strategy Layer */}
+            <div className="col-span-12 lg:col-span-4 p-8 border-b lg:border-b-0 lg:border-r border-white/10 relative flex items-center justify-center">
+              {/* Flow Lines + Particles */}
+              <svg viewBox="0 0 900 520" className="absolute inset-0 w-full h-full pointer-events-none">
+                <defs>
+                  <filter id="glowPink">
+                    <feGaussianBlur stdDeviation="3.2" result="coloredBlur" />
+                    <feMerge>
+                      <feMergeNode in="coloredBlur" />
+                      <feMergeNode in="SourceGraphic" />
+                    </feMerge>
+                  </filter>
+                </defs>
 
-               {/* Abstract Grid Elements */}
-               <div className="absolute inset-0 grid grid-cols-12 grid-rows-8 opacity-10">
-                 {[...Array(96)].map((_, i) => (
-                    <div key={i} className="border-[0.5px] border-white/20" />
-                 ))}
-               </div>
+                <path
+                  d="M 70 260 C 200 260, 250 260, 320 260"
+                  fill="none"
+                  stroke="rgba(236,72,153,0.18)"
+                  strokeWidth="3"
+                />
+                <path
+                  d="M 580 260 C 650 260, 700 260, 830 260"
+                  fill="none"
+                  stroke="rgba(236,72,153,0.18)"
+                  strokeWidth="3"
+                />
+
+                <AnimatePresence mode="wait">
+                  <motion.circle
+                    key={`dotL-${active.id}`}
+                    r="6"
+                    fill="#f472b6"
+                    filter="url(#glowPink)"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1, offsetDistance: ['0%', '100%'] }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 1.2, ease: 'easeInOut' }}
+                    style={{ offsetPath: "path('M 70 260 C 200 260, 250 260, 320 260')" }}
+                  />
+                </AnimatePresence>
+
+                <AnimatePresence mode="wait">
+                  <motion.circle
+                    key={`dotR-${active.id}`}
+                    r="6"
+                    fill="#f472b6"
+                    filter="url(#glowPink)"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1, offsetDistance: ['0%', '100%'] }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 1.2, ease: 'easeInOut', delay: 0.9 }}
+                    style={{ offsetPath: "path('M 580 260 C 650 260, 700 260, 830 260')" }}
+                  />
+                </AnimatePresence>
+              </svg>
+
+              <div className="w-full max-w-sm">
+                <div className="text-center mb-6">
+                  <div className="text-[10px] font-mono text-pink-300/80 tracking-widest uppercase">strategy layer</div>
+                  <div className="text-3xl font-black text-white mt-2">策略层</div>
+                  <div className="text-sm text-gray-500 mt-2">
+                    对模型输出做<strong className="text-gray-300">约束 / 博弈 / 再排序</strong>
+                  </div>
+                </div>
+
+                <div className="space-y-6">
+                  <Dial
+                    title="商业"
+                    color="pink"
+                    value={activeScore.biz}
+                    angle={bizAngle}
+                    hint={`Δ = ${round1(weights.biz * activeScore.biz)}`}
+                  />
+                  <Dial
+                    title="生态"
+                    color="emerald"
+                    value={activeScore.eco}
+                    angle={ecoAngle}
+                    hint={`Δ = ${round1(weights.eco * activeScore.eco)}`}
+                  />
+                </div>
+
+                {/* Current candidate result */}
+                <div className="mt-8 rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <div className="text-[10px] font-mono text-gray-500 uppercase tracking-widest">current candidate</div>
+                  <div className="mt-2 flex items-center justify-between">
+                    <div className="font-bold text-white">{active.title}</div>
+                    <div className="text-[12px] font-mono text-gray-200">
+                      {round1(active.base)} → {round1(activeScore.final)}
+                    </div>
+                  </div>
+                  <div className="mt-3 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-pink-400/80 to-purple-500/80"
+                      style={{ width: `${clamp(activeScore.final, 0, 100)}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Right: Final ranking */}
+            <div className="col-span-12 lg:col-span-4 p-8">
+              <div className="flex items-center justify-between mb-6">
+                <div className="text-sm font-black text-gray-200">最终排序</div>
+                <div className="text-[10px] font-mono text-gray-500 uppercase tracking-widest">final score</div>
+              </div>
+
+              <div className="space-y-3">
+                {sorted.map((c, rank) => {
+                  const isActive = c.id === active.id;
+                  return (
+                    <motion.div
+                      key={c.id}
+                      layout
+                      className={`rounded-2xl border p-4 transition-all ${
+                        isActive ? 'border-pink-500/50 bg-pink-500/10' : 'border-white/10 bg-white/5 hover:bg-white/7'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-gray-300 font-black">
+                            #{rank + 1}
+                          </div>
+                          <div className="font-bold text-white">{c.title}</div>
+                          {rank === 0 && (
+                            <span className="text-[10px] font-mono uppercase tracking-widest text-yellow-300/90 flex items-center gap-1">
+                              <TrendingUp className="w-3 h-3" /> top
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="text-[12px] font-mono text-gray-200">{round1(c.final)}</div>
+                      </div>
+
+                      <div className="mt-3 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-emerald-400/70 to-cyan-400/70"
+                          style={{ width: `${clamp(c.final, 0, 100)}%` }}
+                        />
+                      </div>
+
+                      <div className="mt-3 flex items-center justify-between text-[10px] font-mono text-gray-500 uppercase">
+                        <span>base {round1(c.base)}</span>
+                        <span>
+                          +biz {round1(weights.biz * c.biz)} / +eco {round1(weights.eco * c.eco)}
+                        </span>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </div>
+
+              <div className="mt-6 text-[11px] text-gray-500 leading-relaxed">
+                你后续讲：商业/生态可以代表广告、活动、冷启、新作者保护、风控、治理、多样性等约束，
+                最终落到<strong className="text-gray-300">重排</strong>阶段影响 Top-K。
+              </div>
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  );
+};
 
-        {/* Floating Indicator */}
-        <div className="absolute -bottom-12 -right-6 glass px-6 py-4 rounded-2xl border-2 border-blue-500/50 flex items-center gap-4">
-          <div className="text-xs font-bold text-gray-400 uppercase">Algorithm Output Influenced by Human Strategy</div>
-          <div className="text-blue-500 font-black">ACTIVE</div>
+const Dial: React.FC<{
+  title: string;
+  color: 'pink' | 'emerald';
+  value: number; // -1..1
+  angle: number; // degrees
+  hint: string;
+}> = ({ title, color, value, angle, hint }) => {
+  const theme =
+    color === 'pink'
+      ? {
+          ring: 'border-pink-500/30 bg-pink-500/10',
+          dot: '#f472b6',
+          text: 'text-pink-300',
+          shadow: 'shadow-[0_0_30px_rgba(236,72,153,0.18)]',
+        }
+      : {
+          ring: 'border-emerald-500/30 bg-emerald-500/10',
+          dot: '#34d399',
+          text: 'text-emerald-300',
+          shadow: 'shadow-[0_0_30px_rgba(16,185,129,0.18)]',
+        };
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+      <div className="flex items-center justify-between">
+        <div className={`font-black ${theme.text}`}>{title}</div>
+        <div className="text-[10px] font-mono text-gray-500 uppercase tracking-widest">{hint}</div>
+      </div>
+
+      <div className="mt-4 flex items-center gap-5">
+        {/* Circle dial */}
+        <div className={`relative w-24 h-24 rounded-full border ${theme.ring} ${theme.shadow}`}>
+          <div className="absolute inset-0 rounded-full border border-white/5" />
+
+          {/* simple ticks */}
+          <div className="absolute left-1/2 top-1/2 w-[2px] h-[38px] -translate-x-1/2 -translate-y-full bg-white/10" />
+          <div className="absolute left-1/2 top-1/2 w-[2px] h-[38px] -translate-x-1/2 bg-white/10" />
+
+          {/* Hand */}
+          <motion.div
+            animate={{ rotate: angle }}
+            transition={{ type: 'spring', stiffness: 120, damping: 18 }}
+            className="absolute left-1/2 top-1/2 origin-bottom"
+            style={{ width: 2, height: 38 }}
+          >
+            <div className="w-[2px] h-[34px] bg-white/60" />
+            <div
+              className="w-2 h-2 rounded-full -ml-[3px] -mt-[2px]"
+              style={{ background: theme.dot, boxShadow: `0 0 14px ${theme.dot}` }}
+            />
+          </motion.div>
+
+          <div className="absolute left-1/2 top-1/2 w-2.5 h-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/50" />
+        </div>
+
+        {/* Value bar */}
+        <div className="flex-1">
+          <div className="flex items-center justify-between text-[10px] font-mono text-gray-500 uppercase">
+            <span>-1</span>
+            <span className="text-gray-300">{round1(value)}</span>
+            <span>+1</span>
+          </div>
+
+          <div className="mt-2 h-2 rounded-full bg-white/10 overflow-hidden relative">
+            <div className="absolute left-1/2 top-0 h-full w-px bg-white/15" />
+            <div
+              className="absolute top-0 h-full"
+              style={{
+                left: value >= 0 ? '50%' : `${50 + value * 50}%`,
+                width: `${Math.abs(value) * 50}%`,
+                background:
+                  color === 'pink'
+                    ? 'linear-gradient(90deg, rgba(244,114,182,0.0), rgba(244,114,182,0.8))'
+                    : 'linear-gradient(90deg, rgba(52,211,153,0.0), rgba(52,211,153,0.8))',
+              }}
+            />
+          </div>
+
+          <div className="mt-2 text-[11px] text-gray-500">候选过来后，策略给出正/负方向的加成</div>
         </div>
       </div>
     </div>
