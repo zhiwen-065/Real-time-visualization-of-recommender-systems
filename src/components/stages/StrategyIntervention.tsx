@@ -38,7 +38,7 @@ const StrategyIntervention: React.FC = () => {
   useEffect(() => {
     const interval = setInterval(() => {
       setActiveIdx((i) => (i + 1) % candidates.length);
-    }, 2200);
+    }, 5200);
     return () => clearInterval(interval);
   }, [candidates.length]);
 
