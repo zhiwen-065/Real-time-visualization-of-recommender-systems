@@ -102,13 +102,36 @@ const DiversityControl: React.FC = () => {
       ? [0, 0, 0, 1, 2]          // 还没扩圈：登山为主，少量装备/露营
       : [0, 0, secondary, 1, 2]; // 已扩圈：secondary 进入“相关池”而不再只是探索
 
-    const neighborPool = secondary === null
-      ? [3, 4, 5]                // 邻近内容：路线/人文/轻户外
-      : [secondary, 3, 4, 5];    // 扩圈后：secondary 更可能被抽到（模拟“纳入兴趣资产”）
+    // neighborPool：探索位承载的“邻近内容池”
+// exploreRatio 越大，探索越“宽”（从强相关邻近 → 更泛的邻近）
+const neighborPool = (() => {
+  // 基础邻近：路线/人文/轻户外
+  const near = [3, 4, 5];
+
+  // 扩圈后：secondary 更可能被抽到（模拟兴趣资产进入探索候选）
+  const withSecondary = secondary === null ? near : [secondary, ...near];
+
+  // exploreRatio 小：探索更谨慎（更多抽 secondary/更近邻）
+  // exploreRatio 大：探索更宽（更容易抽到 4/5 这类更“泛”的邻近）
+  const r = clamp(exploreRatio, 0.05, 0.35);
+  if (r < 0.14) return secondary === null ? [3, 3, 4] : [secondary, 3, 3, 4];
+  if (r < 0.24) return withSecondary; // [secondary?,3,4,5]
+  return secondary === null ? [3, 4, 4, 5, 5] : [secondary, 3, 4, 4, 5, 5];
+})();
+
 
     const pick = (i: number) => {
-      // A：单目标最优 => 12/12 几乎都主兴趣（让“同质化”非常明确）
-      if (phase === 'optimize') return 0;
+      // A：单目标最优（相关性优先）
+// 仍然以主兴趣为主，但允许少量“非重复但高相关”的内容出现
+// exploreRatio 越大，这个“轻微扩散”的概率越高（让 slider 在 A 也有体感）
+if (phase === 'optimize') {
+  const p = clamp(exploreRatio, 0.05, 0.35); // 0.05~0.35
+  // 用位置 + seed 做一个确定性“抖动”，避免随机导致讲解不稳定
+  const gate = ((i * 17 + seed * 29) % 100) / 100; // 0~1
+  // 大部分还是 0（主兴趣），少量变成 1/2（同主题邻近：装备/露营）
+  return gate < p ? ([1, 2][(i + seed) % 2]) : 0;
+}
+
 
       // B：兴趣扩圈 => 探索位放邻近内容，其余放相关池
       if (phase === 'expand') {
@@ -177,15 +200,29 @@ const DiversityControl: React.FC = () => {
   // 指标：跟着当前阶段、跟着 slider、跟着点赞扩圈而变化（解决“无影响感”）
   const metrics = useMemo(() => {
     const typeIdxs = feed.map((f) => f.typeIndex);
-    const div = diversityScore(typeIdxs);
-    const rel = relevanceScore(typeIdxs, primary, secondary);
+    let div = diversityScore(typeIdxs);
+let rel = relevanceScore(typeIdxs, primary, secondary);
+
+// 让指标更“可讲解”：探索位占比对指标的方向影响显式化（示意）
+// A 阶段影响弱；B/C 阶段影响更强
+const phaseW = phase === 'optimize' ? 0.25 : phase === 'expand' ? 0.8 : 0.65;
+
+// rNorm：0~1
+const rNorm = (clamp(exploreRatio, 0.05, 0.35) - 0.05) / (0.35 - 0.05);
+
+// 多样性：随探索位上升而上升（更稳定）
+div = clamp(Math.round(div + phaseW * (10 * rNorm)), 10, 85);
+
+// 相关性：随探索位上升而轻微下降（B/C 更明显）
+rel = clamp(Math.round(rel - phaseW * (6 * rNorm)), 70, 99);
+
 
     // 这里不追求真实数值，只追求“方向正确、可讲解”
     return {
       relevance: rel,
       diversity: div,
     };
-  }, [feed, primary, secondary]);
+  }, [feed, primary, secondary, phase, exploreRatio]);
 
   const PhaseButton = ({ id, label }: { id: Phase; label: string }) => (
     <button
