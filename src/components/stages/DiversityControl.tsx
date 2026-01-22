@@ -49,9 +49,9 @@ const DiversityControl: React.FC = () => {
       { name: '登山徒步', emoji: '⛰️', grad: 'from-emerald-500/35 to-emerald-900/10' }, // primary
       { name: '户外装备', emoji: '🎒', grad: 'from-teal-500/30 to-teal-900/10' },
       { name: '露营生活', emoji: '⛺', grad: 'from-lime-500/30 to-lime-900/10' },
-      { name: '路线攻略', emoji: '🗺️', grad: 'from-cyan-500/25 to-cyan-900/10' },     // neighbor
-      { name: '自然人文', emoji: '🌍', grad: 'from-indigo-500/25 to-indigo-900/10' },   // neighbor
-      { name: '轻户外', emoji: '🌿', grad: 'from-green-500/25 to-green-900/10' },       // neighbor
+      { name: '路线攻略', emoji: '🗺️', grad: 'from-cyan-500/25 to-cyan-900/10' }, // neighbor
+      { name: '自然人文', emoji: '🌍', grad: 'from-indigo-500/25 to-indigo-900/10' }, // neighbor
+      { name: '轻户外', emoji: '🌿', grad: 'from-green-500/25 to-green-900/10' }, // neighbor
     ],
     []
   );
@@ -100,7 +100,7 @@ const DiversityControl: React.FC = () => {
     };
   }, [phase]);
 
-  // ✅ “系统里通常做什么”也随阶段变化
+  // ✅ “系统里通常做什么”随阶段变化
   const systemDo = useMemo(() => {
     if (phase === 'optimize') {
       return [
@@ -115,59 +115,65 @@ const DiversityControl: React.FC = () => {
       ];
     }
     return [
-      '• 对展示结果施加形态约束：降低连续相似内容的密度。',
-      '• 常见实现包含 MMR 类思想：相关性之外加入相似度惩罚（此处为示意）。',
+      '• 将“已命中”的探索内容纳入兴趣资产：后续可进入主序位（不再只是探索位）。',
+      '• 对展示结果施加形态约束：降低连续相似内容密度（示意包含 MMR 类思想：相似度惩罚）。',
     ];
   }, [phase]);
 
-  // neighborPool：探索位承载的邻近池；ratio 越大探索越“宽”
-  const neighborPool = useMemo(() => {
+  // ——探索池：只用于“探索位”，会排除已纳入兴趣的类型
+  const exploreNeighborPool = useMemo(() => {
     const near = [3, 4, 5]; // 路线/人文/轻户外
-    const interestArr = Array.from(interestSet).filter((x) => x !== primary);
-    const base = interestArr.length > 0 ? [...interestArr, ...near] : near;
+    const pool = near.filter((t) => !interestSet.has(t));
+    return pool.length > 0 ? pool : near; // 全被纳入时，仍保留一个可探索池（演示用）
+  }, [interestSet]);
 
+  // ——相关池：主兴趣 + 同主题邻近 + 已纳入兴趣资产（= 进入主序位）
+  const corePool = useMemo(() => {
+    const interestArr = Array.from(interestSet).filter((x) => x !== primary);
+    // 保持“可讲解”的稳定形态：主兴趣占主导，兴趣资产逐步融入
+    if (interestArr.length === 0) return [0, 0, 0, 1, 2];
+    if (interestArr.length === 1) return [0, 0, interestArr[0], 1, 2, 0];
+    return [0, 0, interestArr[0], interestArr[1], 1, 2, 0];
+  }, [interestSet, primary]);
+
+  // ——用于阶段 B：探索更“宽/窄”的示意（但仍只在探索位里抽）
+  const explorePickPool = useMemo(() => {
     const r = clamp(exploreRatio, 0.05, 0.35);
-    if (r < 0.14) return base.length ? [base[0] ?? 3, base[0] ?? 3, 4] : [3, 3, 4];
-    if (r < 0.24) return base;
-    return [...base, 4, 4, 5, 5];
-  }, [interestSet, exploreRatio, primary]);
+    if (r < 0.14) return [exploreNeighborPool[0] ?? 3, exploreNeighborPool[0] ?? 3, exploreNeighborPool[1] ?? 4];
+    if (r < 0.24) return exploreNeighborPool;
+    return [...exploreNeighborPool, ...exploreNeighborPool, 4, 5].filter((x) => x !== undefined) as number[];
+  }, [exploreNeighborPool, exploreRatio]);
 
+  // ✅ 关键：Like 过的内容到了“多目标重排”阶段将进入主序位（不再算探索位）
   const feed = useMemo(() => {
-    const interestArr = Array.from(interestSet).filter((x) => x !== primary);
-
-    // 相关池：主兴趣 + 少量同主题邻近 + 已纳入兴趣资产
-    const corePool =
-      interestArr.length === 0
-        ? [0, 0, 0, 1, 2]
-        : [0, 0, interestArr[0] ?? 1, interestArr[1] ?? 2, 1, 2];
-
     const pick = (i: number) => {
-      // A：相关性优先（但 exploreRatio 大时允许轻微扩散，保证 slider 在 A 也有体感）
+      // A：相关性优先（仍允许轻微扩散，保证 slider 在 A 也有体感）
       if (phase === 'optimize') {
         const p = clamp(exploreRatio, 0.05, 0.35);
         const gate = ((i * 17 + seed * 29) % 100) / 100;
         return gate < p ? ([1, 2][(i + seed) % 2]) : 0;
       }
 
-      // B：探索位注入
+      // B：探索位注入（探索位只从 explorePickPool 抽；主序位从 corePool 抽）
       if (phase === 'expand') {
-        if (exploreSet.has(i)) return neighborPool[(i + seed) % neighborPool.length];
+        if (exploreSet.has(i)) return explorePickPool[(i + seed) % explorePickPool.length];
         return corePool[(i + seed) % corePool.length];
       }
 
-      // C：约束更强：避免连续重复（示意相似度惩罚）
+      // C：多目标重排（探索位仍从 exploreNeighborPool 抽，但已命中兴趣资产的类型会更多出现在主序位）
       const base = exploreSet.has(i)
-        ? neighborPool[(i + seed) % neighborPool.length]
+        ? exploreNeighborPool[(i + seed) % exploreNeighborPool.length]
         : corePool[(i + seed) % corePool.length];
 
       if (i === 0) return base;
 
       const prev = exploreSet.has(i - 1)
-        ? neighborPool[(i - 1 + seed) % neighborPool.length]
+        ? exploreNeighborPool[(i - 1 + seed) % exploreNeighborPool.length]
         : corePool[(i - 1 + seed) % corePool.length];
 
+      // 连续重复 -> 换一个（示意相似度惩罚）
       if (base === prev) {
-        const alt = exploreSet.has(i) ? neighborPool : corePool;
+        const alt = exploreSet.has(i) ? exploreNeighborPool : corePool;
         return alt[(i + seed + 1) % alt.length];
       }
       return base;
@@ -177,16 +183,31 @@ const DiversityControl: React.FC = () => {
       const base = 0.80 + (i % 4) * 0.03;
       const primaryBoost = t === primary ? 0.06 : 0;
       const inInterestBoost = interestSet.has(t) ? 0.03 : 0;
+
+      // 探索位轻微折扣（示意）
       const explorePenalty = exploreSet.has(i) && phase !== 'optimize' ? -0.03 : 0;
+
+      // 阶段微调（示意）
       const phaseAdj = phase === 'optimize' ? 0.05 : phase === 'expand' ? 0.02 : 0.0;
       const noise = Math.sin((i + seed) * 1.7) * 0.01;
+
       return clamp(base + primaryBoost + inInterestBoost + explorePenalty + phaseAdj + noise, 0, 1);
     };
 
     const items = Array.from({ length: n }).map((_, i) => {
       const t = pick(i);
       const score = scoreFor(i, t);
-      const slotTag = phase === 'optimize' ? '主序位' : exploreSet.has(i) ? '探索位' : '主序位';
+
+      // ✅ 关键修正：探索位的“身份”会被兴趣资产重新定义
+      // - expand/constrain：位置在 exploreSet 里，且该类型尚未纳入 interest => 探索位
+      // - 一旦纳入 interest => 在重排阶段应视作主序位内容（不再只是探索位）
+      const isExplore =
+        phase !== 'optimize' &&
+        exploreSet.has(i) &&
+        !interestSet.has(t) &&
+        t !== primary;
+
+      const slotTag = phase === 'optimize' ? '主序位' : isExplore ? '探索位' : '主序位';
 
       return {
         id: `${phase}-${seed}-${i}`,
@@ -194,19 +215,19 @@ const DiversityControl: React.FC = () => {
         typeIndex: t,
         score,
         slotTag,
-        isExplore: exploreSet.has(i) && phase !== 'optimize',
+        isExplore,
       };
     });
 
-    // C：按 score 做最终排序观感
+    // C：按 score 排序更直观（最终展示顺序）
     if (phase === 'constrain') {
       return items.sort((a, b) => b.score - a.score).map((x, idx) => ({ ...x, rank: idx + 1 }));
     }
 
     return items.map((x, idx) => ({ ...x, rank: idx + 1 }));
-  }, [phase, seed, exploreSet, exploreRatio, primary, interestSet, neighborPool]);
+  }, [phase, seed, exploreSet, exploreRatio, primary, interestSet, corePool, exploreNeighborPool, explorePickPool]);
 
-  // ✅ 指标：随 slider 增长 -> 多样性总体上升；Like 扩圈 -> 多样性/相关性也有变化
+  // ✅ 指标：随 slider 增长 -> 多样性总体上升；Like 扩圈 -> 多样性/相关性也变化
   const metrics = useMemo(() => {
     const typeIdxs = feed.map((f) => f.typeIndex);
 
@@ -217,15 +238,15 @@ const DiversityControl: React.FC = () => {
     const rNorm = (clamp(exploreRatio, 0.05, 0.35) - 0.05) / (0.35 - 0.05); // 0..1
 
     // slider 越往右，多样性越高（示意）
-    div = clamp(Math.round(div + phaseW * (14 * rNorm)), 10, 90);
+    div = clamp(Math.round(div + phaseW * (14 * rNorm)), 10, 92);
 
     // slider 越往右，相关性轻微下降（示意）
     rel = clamp(Math.round(rel - phaseW * (7 * rNorm)), 70, 99);
 
     // Like 扩圈：兴趣资产增加 => 多样性可持续性更强；相关性“定义变宽”可回补
-    const interestN = interestSet.size; // 不含 primary 的也算资产，这里示意
-    div = clamp(div + clamp(Math.round(interestN * 1.5), 0, 6), 10, 92);
-    rel = clamp(rel + clamp(Math.round(interestN * 1.2), 0, 5), 70, 99);
+    const interestN = Array.from(interestSet).filter((x) => x !== primary).length;
+    div = clamp(div + clamp(Math.round(interestN * 2.0), 0, 8), 10, 95);
+    rel = clamp(rel + clamp(Math.round(interestN * 1.4), 0, 6), 70, 99);
 
     return { relevance: rel, diversity: div };
   }, [feed, interestSet, phase, exploreRatio, primary]);
@@ -272,24 +293,70 @@ const DiversityControl: React.FC = () => {
     </div>
   );
 
-  const sliderBg = useMemo(() => {
-    // 三段阈值对应位置（按 0.14 / 0.24）
+  // ✅ 三段颜色（直接画在“轨道 div”上，避免浏览器 range track 不吃 background 的问题）
+  const sliderStops = useMemo(() => {
     const t1 = ((0.14 - 0.05) / (0.35 - 0.05)) * 100; // optimize -> expand
-    const t2 = ((0.24 - 0.05) / (0.35 - 0.05)) * 100; // expand -> third stage
+    const t2 = ((0.24 - 0.05) / (0.35 - 0.05)) * 100; // expand -> constrain
+    return { t1, t2 };
+  }, []);
 
+  const sliderBg = useMemo(() => {
+    const { t1, t2 } = sliderStops;
     return `linear-gradient(90deg,
-      rgba(59,130,246,0.75) 0%,
-      rgba(59,130,246,0.75) ${t1}%,
-      rgba(16,185,129,0.75) ${t1}%,
-      rgba(16,185,129,0.75) ${t2}%,
-      rgba(168,85,247,0.75) ${t2}%,
-      rgba(168,85,247,0.75) 100%
+      rgba(59,130,246,0.85) 0%,
+      rgba(59,130,246,0.85) ${t1}%,
+      rgba(16,185,129,0.85) ${t1}%,
+      rgba(16,185,129,0.85) ${t2}%,
+      rgba(168,85,247,0.85) ${t2}%,
+      rgba(168,85,247,0.85) 100%
     )`;
-  }, [exploreRatio]);
-
+  }, [sliderStops]);
 
   return (
     <div className="w-full h-full overflow-y-auto px-4 md:px-6 py-8">
+      {/* range 样式（确保三段颜色可见、thumb 可控） */}
+      <style>{`
+        .range3 {
+          -webkit-appearance: none;
+          appearance: none;
+          width: 100%;
+          height: 12px;
+          background: transparent;
+          outline: none;
+        }
+        .range3::-webkit-slider-runnable-track {
+          height: 12px;
+          background: transparent;
+          border-radius: 9999px;
+        }
+        .range3::-webkit-slider-thumb {
+          -webkit-appearance: none;
+          appearance: none;
+          width: 18px;
+          height: 18px;
+          border-radius: 9999px;
+          background: rgba(16,185,129,1);
+          border: 2px solid rgba(255,255,255,0.25);
+          box-shadow: 0 0 20px rgba(16,185,129,0.35);
+          margin-top: -3px; /* 让 thumb 垂直居中 */
+          cursor: pointer;
+        }
+        .range3::-moz-range-track {
+          height: 12px;
+          background: transparent;
+          border-radius: 9999px;
+        }
+        .range3::-moz-range-thumb {
+          width: 18px;
+          height: 18px;
+          border-radius: 9999px;
+          background: rgba(16,185,129,1);
+          border: 2px solid rgba(255,255,255,0.25);
+          box-shadow: 0 0 20px rgba(16,185,129,0.35);
+          cursor: pointer;
+        }
+      `}</style>
+
       <div className="w-full max-w-[1600px] mx-auto">
         <div className="glass rounded-[28px] border border-white/10 shadow-2xl overflow-hidden">
           {/* Header */}
@@ -312,9 +379,7 @@ const DiversityControl: React.FC = () => {
                       <span className="px-2.5 py-1 rounded-full text-[10px] font-black tracking-widest border border-blue-400/20 bg-blue-500/10 text-blue-200">
                         {stage.badge}
                       </span>
-                      <h2 className="text-2xl md:text-3xl font-black text-white tracking-tight">
-                        {stage.title}
-                      </h2>
+                      <h2 className="text-2xl md:text-3xl font-black text-white tracking-tight">{stage.title}</h2>
                     </div>
                     <div className="text-xs text-gray-400">{stage.subtitle}</div>
                     <div className="text-[11px] text-gray-500">{stage.note}</div>
@@ -326,32 +391,34 @@ const DiversityControl: React.FC = () => {
             {/* Explore Ratio 控制条（线本身三段颜色） */}
             <div className="glass rounded-2xl border border-white/10 px-5 py-4">
               <div className="flex items-center justify-between">
-                <div className="text-[11px] font-black tracking-widest uppercase text-gray-500">
-                  探索位占比（演示参数）
-                </div>
+                <div className="text-[11px] font-black tracking-widest uppercase text-gray-500">探索位占比（演示参数）</div>
                 <div className="text-[11px] font-mono text-gray-400">
                   {(exploreRatio * 100).toFixed(0)}%（≈ {exploreSlots} / {n}）
                 </div>
               </div>
 
               <div className="mt-3">
-                <input
-                  type="range"
-                  min={0.05}
-                  max={0.35}
-                  step={0.01}
-                  value={exploreRatio}
-                  onChange={(e) => {
-                    setExploreRatio(parseFloat(e.target.value));
-                    setSeed((s) => s + 1);
-                  }}
-                  className="w-full accent-emerald-400"
-                  style={{
-                    backgroundImage: sliderBg,
-                    borderRadius: 9999,
-                    height: 10,
-                  }}
-                />
+                {/* 轨道：三段颜色 */}
+                <div className="relative w-full">
+                  <div
+                    className="h-[12px] rounded-full"
+                    style={{ backgroundImage: sliderBg }}
+                  />
+                  {/* range：透明轨道 + 可见 thumb（覆盖在上面） */}
+                  <input
+                    type="range"
+                    min={0.05}
+                    max={0.35}
+                    step={0.01}
+                    value={exploreRatio}
+                    onChange={(e) => {
+                      setExploreRatio(parseFloat(e.target.value));
+                      setSeed((s) => s + 1);
+                    }}
+                    className="range3 absolute inset-0"
+                    aria-label="explore ratio"
+                  />
+                </div>
 
                 <div className="mt-2 flex justify-between text-[10px] text-gray-500">
                   <span>相关性优先</span>
@@ -422,13 +489,11 @@ const DiversityControl: React.FC = () => {
                               <div className="text-3xl drop-shadow-lg">{t.emoji}</div>
                               <div className="mt-1 text-[11px] font-black text-white/90">{t.name}</div>
                               {interestSet.has(item.typeIndex) && item.typeIndex !== primary && (
-                                <div className="mt-1 text-[10px] font-mono text-emerald-200/90">
-                                  in interest
-                                </div>
+                                <div className="mt-1 text-[10px] font-mono text-emerald-200/90">in interest</div>
                               )}
                             </div>
 
-                            {/* 右上：探索位可见交互 */}
+                            {/* 右上：探索位可见交互（只在“兴趣探索”阶段展示） */}
                             {item.isExplore && phase === 'expand' && (
                               <button
                                 onClick={() => onLike(item.typeIndex)}
@@ -488,8 +553,8 @@ const DiversityControl: React.FC = () => {
                         <div>
                           {phase === 'expand' ? (
                             <>
-                              你可以对探索位内容点击 <span className="text-emerald-200 font-bold">Like</span>，
-                              用来模拟“探索命中”后画像扩充。被纳入的类型会影响后续结果构成，并反映到指标变化中。
+                              你可以对探索位内容点击 <span className="text-emerald-200 font-bold">Like</span>，用来模拟“探索命中”后画像扩充。
+                              被纳入的类型在后续阶段会进入主序位（不再只是探索位），并反映到指标变化中。
                             </>
                           ) : (
                             <>
@@ -500,23 +565,25 @@ const DiversityControl: React.FC = () => {
                       </div>
 
                       {/* ✅ 只保留这里的“已纳入兴趣画像” */}
-                      {interestSet.size > 0 && (
+                      {Array.from(interestSet).filter((x) => x !== primary).length > 0 && (
                         <div className="pt-1">
                           <div className="text-[10px] font-black tracking-widest uppercase text-gray-500 mb-2">
                             已纳入兴趣画像（演示）
                           </div>
 
                           <div className="flex flex-wrap gap-2">
-                            {[...interestSet].map((tIdx) => (
-                              <button
-                                key={tIdx}
-                                onClick={() => removeInterest(tIdx)}
-                                className="px-3 py-1 rounded-full text-[11px] border border-emerald-400/25 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/18 transition"
-                                title="点击移除（模拟画像收敛/降权）"
-                              >
-                                {types[tIdx]?.name ?? `type-${tIdx}`} <span className="opacity-70">×</span>
-                              </button>
-                            ))}
+                            {Array.from(interestSet)
+                              .filter((tIdx) => tIdx !== primary)
+                              .map((tIdx) => (
+                                <button
+                                  key={tIdx}
+                                  onClick={() => removeInterest(tIdx)}
+                                  className="px-3 py-1 rounded-full text-[11px] border border-emerald-400/25 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/18 transition"
+                                  title="点击移除（模拟画像收敛/降权）"
+                                >
+                                  {types[tIdx]?.name ?? `type-${tIdx}`} <span className="opacity-70">×</span>
+                                </button>
+                              ))}
 
                             <button
                               onClick={resetInterest}
