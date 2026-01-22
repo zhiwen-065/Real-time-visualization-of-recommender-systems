@@ -1,15 +1,200 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Shuffle, Info, ArrowRight } from 'lucide-react';
+import { Shuffle, Info, Heart } from 'lucide-react';
 
-type Phase = 'relevance' | 'explore' | 'rerank';
+type Phase = 'optimize' | 'expand' | 'constrain';
 
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
 
+function uniqCount(arr: number[]) {
+  return new Set(arr).size;
+}
+
+// 用一个简单的“多样性分数示意”：唯一类型数越多分数越高（0~100）
+function diversityScore(typeIdxs: number[]) {
+  const u = uniqCount(typeIdxs);
+  // 12格里，1种=>10分，6种=>60分左右（示意）
+  return clamp(10 + (u - 1) * 12, 10, 85);
+}
+
+// 用一个简单的“相关性分数示意”：越偏向主兴趣越高（0~100）
+function relevanceScore(typeIdxs: number[], primary: number, secondary: number | null) {
+  const wPrimary = 1.0;
+  const wSecondary = 0.65;
+  const wOther = 0.25;
+  let sum = 0;
+  for (const t of typeIdxs) {
+    sum += t === primary ? wPrimary : secondary !== null && t === secondary ? wSecondary : wOther;
+  }
+  // 归一到 0~100（示意）
+  return clamp(Math.round((sum / typeIdxs.length) * 100), 70, 99);
+}
+
 const DiversityControl: React.FC = () => {
-  const [phase, setPhase] = useState<Phase>('relevance');
+  const [phase, setPhase] = useState<Phase>('optimize');
   const [seed, setSeed] = useState(0);
-  const [exploreRatio, setExploreRatio] = useState(0.18);
+
+  // 探索位占比（你要求：拉动要明显影响）
+  const [exploreRatio, setExploreRatio] = useState(0.2);
+
+  // 用户兴趣画像（演示用）：主兴趣=登山(0)，secondary 会在用户对探索内容点赞后被“纳入兴趣资产”
+  const [primary] = useState(0);
+  const [secondary, setSecondary] = useState<number | null>(null);
+
+  // 自动轮播三阶段（如果你想全手动讲解，把这个 useEffect 删掉）
+  useEffect(() => {
+    const order: Phase[] = ['optimize', 'expand', 'constrain'];
+    const timer = setInterval(() => {
+      setPhase((p) => order[(order.indexOf(p) + 1) % order.length]);
+      setSeed((s) => s + 1);
+    }, 5200);
+    return () => clearInterval(timer);
+  }, []);
+
+  // 内容类型：保持严谨、通用、讲座可用
+  const types = useMemo(
+    () => [
+      { name: '登山徒步', emoji: '⛰️', grad: 'from-emerald-500/35 to-emerald-900/10' }, // primary
+      { name: '户外装备', emoji: '🎒', grad: 'from-teal-500/30 to-teal-900/10' },
+      { name: '露营生活', emoji: '⛺', grad: 'from-lime-500/30 to-lime-900/10' },
+      { name: '路线攻略', emoji: '🗺️', grad: 'from-cyan-500/25 to-cyan-900/10' },     // neighbor
+      { name: '自然人文', emoji: '🌍', grad: 'from-indigo-500/25 to-indigo-900/10' },   // neighbor
+      { name: '轻户外', emoji: '🌿', grad: 'from-green-500/25 to-green-900/10' },       // neighbor
+    ],
+    []
+  );
+
+  const n = 12;
+  const exploreSlots = clamp(Math.round(n * exploreRatio), 1, 5);
+
+  // 探索位位置：用 seed 打散，让“占比变化”肉眼明显 + 位置不是固定死的
+  const explorePositions = useMemo(() => {
+    const base = [1, 3, 5, 8, 10, 11]; // 分散在前中后
+    const rotated = base.map((p) => (p + seed) % n);
+    return rotated.slice(0, exploreSlots);
+  }, [exploreSlots, seed]);
+
+  const exploreSet = useMemo(() => new Set(explorePositions), [explorePositions]);
+
+  // 三个阶段的“动机式”命名 + 解释（不再用“相关性排序/打散”这种行为名）
+  const stage = useMemo(() => {
+    if (phase === 'optimize') {
+      return {
+        badge: 'A',
+        title: '单目标最优（相关性优先）',
+        subtitle: '如果只追求预测收益最大，结果很可能集中在同一主题附近。',
+        note:
+          '风险：短期更稳，但连续重复会降低发现性，兴趣边界容易被锁定。',
+      };
+    }
+    if (phase === 'expand') {
+      return {
+        badge: 'B',
+        title: '兴趣扩圈（探索位注入）',
+        subtitle: '在保证整体相关的前提下，预留少量位置展示“邻近但不重复”的内容。',
+        note:
+          '关键：探索不是随机推荐，而是挑选“语义邻近”的候选来测试你的边界反应。',
+      };
+    }
+    return {
+      badge: 'C',
+      title: '结果约束（相关性 × 多样性平衡）',
+      subtitle: '对“过于相似”的结果施加约束，避免连续重复，同时保留高相关内容。',
+      note:
+        '这通常发生在重排/过滤附近：不改变主流程，但对最终展示结果做形态约束。',
+    };
+  }, [phase]);
+
+  // ——生成同一条 feed 在不同阶段的“连贯演进”
+  const feed = useMemo(() => {
+    const corePool = secondary === null
+      ? [0, 0, 0, 1, 2]          // 还没扩圈：登山为主，少量装备/露营
+      : [0, 0, secondary, 1, 2]; // 已扩圈：secondary 进入“相关池”而不再只是探索
+
+    const neighborPool = secondary === null
+      ? [3, 4, 5]                // 邻近内容：路线/人文/轻户外
+      : [secondary, 3, 4, 5];    // 扩圈后：secondary 更可能被抽到（模拟“纳入兴趣资产”）
+
+    const pick = (i: number) => {
+      // A：单目标最优 => 12/12 几乎都主兴趣（让“同质化”非常明确）
+      if (phase === 'optimize') return 0;
+
+      // B：兴趣扩圈 => 探索位放邻近内容，其余放相关池
+      if (phase === 'expand') {
+        if (exploreSet.has(i)) return neighborPool[(i + seed) % neighborPool.length];
+        return corePool[(i + seed) % corePool.length];
+      }
+
+      // C：结果约束 => 仍以相关为主，但避免“连续重复”
+      const base = exploreSet.has(i)
+        ? neighborPool[(i + seed) % neighborPool.length]
+        : corePool[(i + seed) % corePool.length];
+
+      if (i === 0) return base;
+
+      const prev = exploreSet.has(i - 1)
+        ? neighborPool[(i - 1 + seed) % neighborPool.length]
+        : corePool[(i - 1 + seed) % corePool.length];
+
+      // 如果连续重复，就换一个仍然相关/邻近的类型（示意“相似度惩罚/多样性约束”）
+      if (base === prev) {
+        const alt = exploreSet.has(i) ? neighborPool : corePool;
+        return alt[(i + seed + 1) % alt.length];
+      }
+      return base;
+    };
+
+    const scoreFor = (i: number, t: number) => {
+      // 分数示意：主兴趣略高；探索位略低；约束阶段整体会有轻微权衡
+      const base = 0.80 + (i % 4) * 0.03;
+      const primaryBoost = t === primary ? 0.06 : 0;
+      const secondaryBoost = secondary !== null && t === secondary ? 0.03 : 0;
+      const explorePenalty = exploreSet.has(i) ? -0.03 : 0;
+      const phaseAdj = phase === 'optimize' ? 0.05 : phase === 'expand' ? 0.02 : 0.0;
+      const noise = Math.sin((i + seed) * 1.7) * 0.01;
+      return clamp(base + primaryBoost + secondaryBoost + explorePenalty + phaseAdj + noise, 0, 1);
+    };
+
+    const items = Array.from({ length: n }).map((_, i) => {
+      const t = pick(i);
+      const score = scoreFor(i, t);
+      const slotTag = phase === 'expand' || phase === 'constrain'
+        ? (exploreSet.has(i) ? '探索位' : '主序位')
+        : '主序位';
+
+      return {
+        id: `${phase}-${seed}-${i}`,
+        i,
+        typeIndex: t,
+        score,
+        slotTag,
+        isExplore: exploreSet.has(i) && phase !== 'optimize',
+      };
+    });
+
+    // C 阶段：展示“最终顺序”更直观 —— 按 score 排一下（这会让用户感觉“经过约束层输出排序”）
+    if (phase === 'constrain') {
+      return items
+        .map((x, rank0) => ({ ...x, _rank0: rank0 }))
+        .sort((a, b) => b.score - a.score)
+        .map((x, newRank) => ({ ...x, rank: newRank + 1 }));
+    }
+
+    return items.map((x, idx) => ({ ...x, rank: idx + 1 }));
+  }, [phase, seed, exploreSet, exploreSlots, exploreRatio, primary, secondary]);
+
+  // 指标：跟着当前阶段、跟着 slider、跟着点赞扩圈而变化（解决“无影响感”）
+  const metrics = useMemo(() => {
+    const typeIdxs = feed.map((f) => f.typeIndex);
+    const div = diversityScore(typeIdxs);
+    const rel = relevanceScore(typeIdxs, primary, secondary);
+
+    // 这里不追求真实数值，只追求“方向正确、可讲解”
+    return {
+      relevance: rel,
+      diversity: div,
+    };
+  }, [feed, primary, secondary]);
 
   const PhaseButton = ({ id, label }: { id: Phase; label: string }) => (
     <button
@@ -27,148 +212,20 @@ const DiversityControl: React.FC = () => {
     </button>
   );
 
-  // ——卡牌类型（不要出现平台名，且内容贴合讲座）
-  const types = useMemo(
-    () => [
-      { name: '登山徒步', emoji: '⛰️', grad: 'from-emerald-500/35 to-emerald-900/10' },
-      { name: '户外装备', emoji: '🎒', grad: 'from-teal-500/30 to-teal-900/10' },
-      { name: '露营生活', emoji: '⛺', grad: 'from-lime-500/30 to-lime-900/10' },
-      { name: '路线攻略', emoji: '🗺️', grad: 'from-cyan-500/25 to-cyan-900/10' },
-      { name: '自然人文', emoji: '🌍', grad: 'from-indigo-500/25 to-indigo-900/10' },
-      { name: '轻户外', emoji: '🌿', grad: 'from-green-500/25 to-green-900/10' },
-    ],
-    []
-  );
-
-  const n = 12;
-  const exploreSlots = clamp(Math.round(n * exploreRatio), 1, 4);
-  const explorePositions = [1, 4, 8, 10].slice(0, exploreSlots);
-  const exploreSet = new Set(explorePositions);
-
-  // ——三个阶段在“同一个 feed”里生成不同的内容组合
-  const feed = useMemo(() => {
-    // 核心相关池：仍然偏向用户主兴趣
-    const corePool = [0, 0, 0, 1, 2]; // 登山为主，少量装备/露营
-    // 探索池：语义邻近但不重复（用于探索边界，不是“讨厌内容”）
-    const explorePool = [3, 4, 5]; // 路线/自然人文/轻户外
-
-    const pickType = (i: number) => {
-      if (phase === 'relevance') {
-        // ① 相关性排序：高度集中，便于解释“同质化风险”
-        return 0; // 12/12 登山徒步
-      }
-
-      if (phase === 'explore') {
-        // ② 插入探索位：在结果中预留少量位置插入边界内容
-        if (exploreSet.has(i)) return explorePool[(i + seed) % explorePool.length];
-        return corePool[(i + seed) % corePool.length];
-      }
-
-      // ③ 重排打散：MMR 思想（示意）——在“仍然相关”的前提下惩罚相似度，避免连着重复
-      const base = exploreSet.has(i)
-        ? explorePool[(i + seed) % explorePool.length]
-        : corePool[(i + seed) % corePool.length];
-
-      if (i === 0) return base;
-      // 如果与前一个类型相同，就切到邻近类型（演示用的“相似度惩罚”效果）
-      const prevBase = exploreSet.has(i - 1)
-        ? explorePool[(i - 1 + seed) % explorePool.length]
-        : corePool[(i - 1 + seed) % corePool.length];
-
-      return base === prevBase ? (base + 1) % types.length : base;
-    };
-
-    const scoreFor = (i: number, typeIndex: number) => {
-      // 分数是“示意”，用于配合讲解：探索/打散会带来轻微权衡
-      const base = 0.86 + (i % 4) * 0.02;
-      const phaseAdj = phase === 'relevance' ? 0.04 : phase === 'explore' ? 0.01 : -0.01;
-      const typeAdj = typeIndex === 0 ? 0.012 : 0; // 核心类型略高
-      const noise = Math.sin((i + seed) * 1.7) * 0.008;
-      return clamp(base + phaseAdj + typeAdj + noise, 0, 1);
-    };
-
-    return Array.from({ length: n }).map((_, i) => {
-      const typeIndex = pickType(i);
-      const score = scoreFor(i, typeIndex);
-      const slotTag =
-        phase === 'explore' && exploreSet.has(i)
-          ? '探索位'
-          : phase === 'rerank' && exploreSet.has(i)
-            ? '探索位'
-            : '主序位';
-
-      return {
-        id: `${phase}-${seed}-${i}`,
-        i,
-        typeIndex,
-        score,
-        slotTag,
-      };
-    });
-  }, [phase, seed, exploreRatio, exploreSlots, exploreSet, types.length]);
-
-  // ——每个阶段的解释与指标（只展示当前阶段，不并排三份）
-  const stage = useMemo(() => {
-    if (phase === 'relevance') {
-      return {
-        title: '多样性控制：从“排序结果”开始观察',
-        subtitle: '候选内容按预测收益/相关性排序后，结果可能高度集中在相近主题。',
-        badge: 'Step A',
-        accuracy: 98,
-        diversity: 10,
-        hint:
-          '讲解点：这个阶段不是“算法坏”，而是单目标优化容易把相似内容推到一起，用户体验可能变得单一。',
-      };
-    }
-    if (phase === 'explore') {
-      return {
-        title: '多样性控制：插入少量探索位',
-        subtitle: '在结果中预留少量位置，插入“语义邻近但不重复”的内容，用于兴趣边界探索。',
-        badge: 'Step B',
-        accuracy: 97,
-        diversity: 22,
-        hint:
-          '讲解点：探索位不是随机塞内容，而是在“仍可能相关”的范围内做探索；用户反馈会影响后续画像与排序。',
-      };
-    }
-    return {
-      title: '多样性控制：重排打散（MMR 思想示意）',
-      subtitle: '在“仍然相关”的前提下，对与已选内容高度相似的项施加惩罚，避免连续重复。',
-      badge: 'Step C',
-      accuracy: 95,
-      diversity: 36,
-      hint:
-        '讲解点：多目标权衡——相关性可能轻微下降，但发现性/长期体验更稳；这一步通常发生在重排层。',
-    };
-  }, [phase]);
-
-  const MetricBar = ({
-    label,
-    val,
-    max = 100,
-    tone = 'blue',
-  }: {
-    label: string;
-    val: number;
-    max?: number;
-    tone?: 'blue' | 'green' | 'red';
-  }) => {
-    const pct = clamp((val / max) * 100, 0, 100);
-    const barClass =
-      tone === 'green' ? 'bg-emerald-400/80' : tone === 'red' ? 'bg-red-400/80' : 'bg-blue-400/80';
-
-    return (
-      <div className="space-y-2">
-        <div className="flex items-end justify-between">
-          <span className="text-gray-400 text-xs font-black uppercase tracking-widest">{label}</span>
-          <span className="text-2xl font-black text-white">{val}%</span>
-        </div>
-        <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-          <motion.div animate={{ width: `${pct}%` }} className={`h-full ${barClass}`} />
-        </div>
+  const MetricBar = ({ label, val, tone }: { label: string; val: number; tone: 'blue' | 'green' }) => (
+    <div className="space-y-2">
+      <div className="flex items-end justify-between">
+        <span className="text-gray-400 text-xs font-black uppercase tracking-widest">{label}</span>
+        <span className="text-2xl font-black text-white">{val}%</span>
       </div>
-    );
-  };
+      <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+        <motion.div
+          animate={{ width: `${val}%` }}
+          className={`h-full ${tone === 'green' ? 'bg-emerald-400/75' : 'bg-blue-400/70'}`}
+        />
+      </div>
+    </div>
+  );
 
   return (
     <div className="w-full h-full overflow-y-auto px-4 md:px-6 py-8">
@@ -199,46 +256,36 @@ const DiversityControl: React.FC = () => {
                       </h2>
                     </div>
                     <div className="text-xs text-gray-400">{stage.subtitle}</div>
+                    <div className="text-[11px] text-gray-500">{stage.note}</div>
                   </motion.div>
                 </AnimatePresence>
               </div>
 
               <div className="flex items-center gap-2 bg-white/5 p-1.5 rounded-full border border-white/10">
-                <PhaseButton id="relevance" label="相关性排序" />
+                <PhaseButton id="optimize" label="单目标最优" />
                 <div className="w-px h-6 bg-white/10" />
-                <PhaseButton id="explore" label="插入探索位" />
+                <PhaseButton id="expand" label="兴趣扩圈" />
                 <div className="w-px h-6 bg-white/10" />
-                <PhaseButton id="rerank" label="重排打散" />
+                <PhaseButton id="constrain" label="结果约束" />
               </div>
             </div>
 
-            {/* Explore Ratio（只在探索/重排时展示更合理；但你讲座可一直展示） */}
+            {/* Explore Ratio 控制条：现在会显著改变探索位数量/分布/结果 */}
             <div className="glass rounded-2xl border border-white/10 px-5 py-4">
               <div className="flex items-center justify-between">
                 <div className="text-[11px] font-black tracking-widest uppercase text-gray-500">
-                  Explore Slots Ratio（探索位占比）
+                  探索位占比（演示参数）
                 </div>
                 <div className="text-[11px] font-mono text-gray-400">
                   {(exploreRatio * 100).toFixed(0)}%（≈ {exploreSlots} / {n}）
                 </div>
               </div>
 
-              <div className="mt-3 flex items-center gap-3">
-                <span className="text-[10px] text-gray-500 font-mono">5%</span>
-                <div className="relative flex-1 h-2 rounded-full bg-white/10 overflow-hidden">
-                  <motion.div
-                    animate={{ width: `${exploreRatio * 100}%` }}
-                    className="h-full bg-emerald-400/70"
-                  />
-                </div>
-                <span className="text-[10px] text-gray-500 font-mono">30%</span>
-              </div>
-
               <div className="mt-3">
                 <input
                   type="range"
                   min={0.05}
-                  max={0.3}
+                  max={0.35}
                   step={0.01}
                   value={exploreRatio}
                   onChange={(e) => {
@@ -248,7 +295,7 @@ const DiversityControl: React.FC = () => {
                   className="w-full accent-emerald-400"
                 />
                 <div className="text-[10px] text-gray-500 mt-1">
-                  用于展示“探索位”比例变化对结果形态的影响（演示参数）。
+                  调整后：探索位数量与位置会变化，feed 形态与指标会随之变化。
                 </div>
               </div>
             </div>
@@ -256,12 +303,11 @@ const DiversityControl: React.FC = () => {
 
           {/* Body */}
           <div className="p-7 md:p-10 space-y-8">
-            {/* Feed + Right Metrics */}
-            <div className="grid grid-cols-1 xl:grid-cols-[1.5fr_0.9fr] gap-6 items-start">
+            <div className="grid grid-cols-1 xl:grid-cols-[1.55fr_0.85fr] gap-6 items-start">
               {/* Feed */}
               <div className="glass rounded-3xl border border-white/10 overflow-hidden">
                 <div className="px-6 py-4 border-b border-white/10 bg-white/[0.02] flex items-center justify-between">
-                  <div className="text-[12px] font-black text-gray-200">当前推荐结果（示意）</div>
+                  <div className="text-[12px] font-black text-gray-200">推荐结果（示意）</div>
                   <div className="flex items-center gap-2 text-[11px] text-gray-500">
                     <Shuffle className="w-4 h-4" />
                     <span>cards: {n}</span>
@@ -273,7 +319,6 @@ const DiversityControl: React.FC = () => {
                     <AnimatePresence mode="popLayout">
                       {feed.map((item, idx) => {
                         const t = types[item.typeIndex];
-                        const isExplore = item.slotTag === '探索位';
 
                         return (
                           <motion.div
@@ -283,28 +328,55 @@ const DiversityControl: React.FC = () => {
                             animate={{ opacity: 1, y: 0, scale: 1 }}
                             exit={{ opacity: 0, y: -10, scale: 0.99 }}
                             transition={{ duration: 0.28, delay: idx * 0.01 }}
-                            className="relative h-[150px] rounded-2xl overflow-hidden border border-white/10 shadow-lg"
+                            className="relative h-[155px] rounded-2xl overflow-hidden border border-white/10 shadow-lg"
                           >
                             <div className={`absolute inset-0 bg-gradient-to-b ${t.grad}`} />
                             <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
 
-                            <div className="absolute top-2 left-2">
-                              <div
-                                className={`px-2 py-1 rounded-full text-[10px] font-black tracking-tight border ${
-                                  isExplore
-                                    ? 'bg-emerald-500/15 text-emerald-200 border-emerald-400/30'
-                                    : 'bg-white/5 text-gray-200 border-white/10'
-                                }`}
-                              >
-                                {item.slotTag}
+                            {/* 左上：位次/标签 */}
+                            <div className="absolute top-2 left-2 flex items-center gap-2">
+                              <div className="px-2 py-1 rounded-full text-[10px] font-black border border-white/10 bg-white/5 text-gray-200">
+                                #{item.rank}
                               </div>
+                              {(phase === 'expand' || phase === 'constrain') && (
+                                <div
+                                  className={`px-2 py-1 rounded-full text-[10px] font-black border ${
+                                    item.slotTag === '探索位'
+                                      ? 'border-emerald-400/30 bg-emerald-500/15 text-emerald-200'
+                                      : 'border-white/10 bg-white/5 text-gray-200'
+                                  }`}
+                                >
+                                  {item.slotTag}
+                                </div>
+                              )}
                             </div>
 
+                            {/* 中间：类型 */}
                             <div className="absolute inset-0 flex flex-col items-center justify-center">
                               <div className="text-3xl drop-shadow-lg">{t.emoji}</div>
                               <div className="mt-1 text-[11px] font-black text-white/90">{t.name}</div>
+                              {secondary !== null && item.typeIndex === secondary && (
+                                <div className="mt-1 text-[10px] font-mono text-emerald-200/90">
+                                  in interest
+                                </div>
+                              )}
                             </div>
 
+                            {/* 右上：对探索内容提供一个“可见的用户动作” */}
+                            {item.isExplore && phase === 'expand' && (
+                              <button
+                                onClick={() => setSecondary(item.typeIndex)}
+                                className="absolute top-2 right-2 px-2.5 py-1.5 rounded-full text-[10px] font-black border border-emerald-400/30 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25 transition"
+                                title="模拟：你对探索内容产生正反馈"
+                              >
+                                <span className="inline-flex items-center gap-1">
+                                  <Heart className="w-3 h-3" />
+                                  Like
+                                </span>
+                              </button>
+                            )}
+
+                            {/* 底部：score */}
                             <div className="absolute left-3 right-3 bottom-3">
                               <div className="flex items-center justify-between text-[10px] font-mono text-white/70">
                                 <span>score</span>
@@ -313,7 +385,9 @@ const DiversityControl: React.FC = () => {
                               <div className="mt-1 h-1.5 rounded-full bg-white/10 overflow-hidden">
                                 <motion.div
                                   animate={{ width: `${Math.min(100, item.score * 100)}%` }}
-                                  className={`h-full ${isExplore ? 'bg-emerald-400/75' : 'bg-blue-400/65'}`}
+                                  className={`h-full ${
+                                    item.slotTag === '探索位' ? 'bg-emerald-400/75' : 'bg-blue-400/70'
+                                  }`}
                                 />
                               </div>
                             </div>
@@ -325,51 +399,63 @@ const DiversityControl: React.FC = () => {
                 </div>
               </div>
 
-              {/* Metrics */}
+              {/* Right Panel: 指标 + 说明（不再出现讲座衔接句） */}
               <div className="space-y-6">
                 <div className="glass rounded-3xl border border-white/10 p-6">
-                  <div className="text-[12px] font-black text-gray-200 mb-4">这一秒里，这一步在优化什么</div>
+                  <div className="text-[12px] font-black text-gray-200 mb-4">当前阶段的结果变化（示意）</div>
 
                   <AnimatePresence mode="wait">
                     <motion.div
-                      key={phase}
+                      key={`${phase}-${secondary ?? 'none'}-${exploreSlots}`}
                       initial={{ opacity: 0, y: 8 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -8 }}
                       className="space-y-6"
                     >
-                      <MetricBar label="相关性指标（示意）" val={stage.accuracy} tone="blue" />
-                      <MetricBar
-                        label="多样性指标（示意）"
-                        val={stage.diversity}
-                        tone={stage.diversity < 15 ? 'red' : 'green'}
-                      />
+                      <MetricBar label="相关性指标（示意）" val={metrics.relevance} tone="blue" />
+                      <MetricBar label="多样性指标（示意）" val={metrics.diversity} tone="green" />
 
-                      <div className="pt-1 text-[11px] text-gray-400 leading-relaxed">
-                        {stage.hint}
+                      <div className="flex items-start gap-3 text-[11px] text-gray-400 leading-relaxed">
+                        <div className="p-2 rounded-xl bg-blue-500/15 border border-blue-400/20">
+                          <Info className="w-4 h-4 text-blue-300" />
+                        </div>
+                        <div>
+                          {phase === 'expand' ? (
+                            <>
+                              你可以点某个探索位的 <span className="text-emerald-200 font-bold">Like</span>，
+                              模拟“用户对邻近内容产生正反馈”。
+                              被点赞的类型会进入兴趣资产：后续阶段它不再只出现在探索位里，而会更多进入“相关池”。
+                            </>
+                          ) : (
+                            <>
+                              这个面板只展示“这一秒多样性控制”对结果形态的影响。
+                              指标变化是示意，重点是：探索位占比与用户反馈会改变后续的内容构成。
+                            </>
+                          )}
+                        </div>
                       </div>
                     </motion.div>
                   </AnimatePresence>
+
+                  {secondary !== null && (
+                    <div className="mt-4 text-[10px] font-mono text-emerald-200/90">
+                      ✅ 新兴趣已纳入：{types[secondary].name}
+                      <button
+                        onClick={() => setSecondary(null)}
+                        className="ml-3 text-gray-500 hover:text-gray-300 underline"
+                      >
+                        reset
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="glass rounded-3xl border border-white/10 p-6">
-                  <div className="flex items-start gap-3">
-                    <div className="p-2 rounded-xl bg-blue-500/15 border border-blue-400/20">
-                      <Info className="w-4 h-4 text-blue-300" />
-                    </div>
-                    <div className="space-y-2">
-                      <div className="text-[12px] font-black text-gray-200">讲座衔接句（可直接念）</div>
-                      <div className="text-[11px] text-gray-400 leading-relaxed">
-                        “在候选内容已经打完分之后，还会有一步专门处理‘结果长得像不像’。
-                        这一步不会改变推荐系统的主流程目标，但会对结果做约束：既保证相关，也避免过度重复，
-                        同时留出少量位置进行兴趣边界探索，靠实时反馈决定下一秒是否继续扩展画像。”
-                      </div>
-
-                      <div className="mt-3 flex items-center gap-2 text-[11px] text-gray-500">
-                        <ArrowRight className="w-4 h-4" />
-                        <span>下一页你就可以接：策略干预 / 节假日提权 / 地域分发 / 用户分层</span>
-                      </div>
-                    </div>
+                  <div className="text-[12px] font-black text-gray-200 mb-3">这一步在系统里通常做什么</div>
+                  <div className="text-[11px] text-gray-400 leading-relaxed space-y-2">
+                    <div>• 在排序之后，对结果做“形态约束”：避免连续重复、提升发现性。</div>
+                    <div>• 预留少量位置用于兴趣边界探索，靠反馈决定是否扩充画像。</div>
+                    <div>• 常见实现会包含 MMR 类思想：在相关性之外加入相似度惩罚（这里做的是示意）。</div>
                   </div>
                 </div>
               </div>
@@ -384,3 +470,18 @@ const DiversityControl: React.FC = () => {
 };
 
 export default DiversityControl;
+
+const MetricBar = ({ label, val, tone }: { label: string; val: number; tone: 'blue' | 'green' }) => (
+  <div className="space-y-2">
+    <div className="flex items-end justify-between">
+      <span className="text-gray-400 text-xs font-black uppercase tracking-widest">{label}</span>
+      <span className="text-2xl font-black text-white">{val}%</span>
+    </div>
+    <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+      <motion.div
+        animate={{ width: `${val}%` }}
+        className={`h-full ${tone === 'green' ? 'bg-emerald-400/75' : 'bg-blue-400/70'}`}
+      />
+    </div>
+  </div>
+);
