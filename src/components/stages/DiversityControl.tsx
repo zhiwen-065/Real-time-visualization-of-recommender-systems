@@ -17,7 +17,7 @@ function diversityScore(typeIdxs: number[]) {
 }
 
 // 相关性分数示意：兴趣集合越丰富，“相关”的定义越宽（0~100）
-function relevanceScore(typeIdxs: number[], interestSet: Set<number>, primary: number) {
+function relevanceScore(typeIdxs: number[], effectiveInterest: Set<number>, primary: number) {
   const wPrimary = 1.0;
   const wInInterest = 0.72;
   const wOther = 0.28;
@@ -25,7 +25,7 @@ function relevanceScore(typeIdxs: number[], interestSet: Set<number>, primary: n
   let sum = 0;
   for (const t of typeIdxs) {
     if (t === primary) sum += wPrimary;
-    else if (interestSet.has(t)) sum += wInInterest;
+    else if (effectiveInterest.has(t)) sum += wInInterest;
     else sum += wOther;
   }
   return clamp(Math.round((sum / typeIdxs.length) * 100), 70, 99);
@@ -40,21 +40,26 @@ const DiversityControl: React.FC = () => {
   // 主兴趣（演示）：登山徒步 = 0
   const primary = 0;
 
-  // ✅ 兴趣资产：支持纳入多个（Like 多次）
+  /**
+   * ✅ 两段式：Like 先进入 pending（兴趣探索阶段记录正反馈）
+   *           到多目标重排阶段（constrain）才“生效”进入 interestSet（主序位相关池）
+   */
+  const [pendingSet, setPendingSet] = useState<Set<number>>(() => new Set());
   const [interestSet, setInterestSet] = useState<Set<number>>(() => new Set());
 
   // 内容类型：保持严谨、通用
-  // ✅ 新增一些“跨圈探索”的类型（用于：当原邻近池都命中/或需要新探索时）
   const types = useMemo(
     () => [
       { name: '登山徒步', emoji: '⛰️', grad: 'from-emerald-500/35 to-emerald-900/10' }, // 0 primary
       { name: '户外装备', emoji: '🎒', grad: 'from-teal-500/30 to-teal-900/10' },       // 1
       { name: '露营生活', emoji: '⛺', grad: 'from-lime-500/30 to-lime-900/10' },        // 2
+
+      // ✅ 兴趣探索阶段只允许这三个“邻近候选”
       { name: '路线攻略', emoji: '🗺️', grad: 'from-cyan-500/25 to-cyan-900/10' },       // 3 neighbor
       { name: '自然人文', emoji: '🌍', grad: 'from-indigo-500/25 to-indigo-900/10' },   // 4 neighbor
       { name: '轻户外', emoji: '🌿', grad: 'from-green-500/25 to-green-900/10' },       // 5 neighbor
 
-      // ✅ 新探索方向（跨圈、但仍可解释为“语义邻近/潜在相关”的候选）
+      // ✅ 新方向：只在多目标重排阶段作为“新的探索候选”
       { name: '摄影纪实', emoji: '📷', grad: 'from-fuchsia-500/20 to-fuchsia-900/10' }, // 6 new
       { name: '科学科普', emoji: '🧪', grad: 'from-sky-500/20 to-sky-900/10' },         // 7 new
       { name: '城市漫游', emoji: '🏙️', grad: 'from-violet-500/20 to-violet-900/10' },  // 8 new
@@ -71,6 +76,25 @@ const DiversityControl: React.FC = () => {
     if (exploreRatio < 0.24) return 'expand';
     return 'constrain';
   }, [exploreRatio]);
+
+  // ✅ 进入多目标重排阶段时，将 pendingSet “提交”到 interestSet（生效进入主序位相关池）
+  // 用 useMemo 做“阶段边界触发”的轻量方式：当 phase 变为 constrain 时，如果有 pending 就合并
+  // （不引入 useEffect，仍然可控且不会自动播放）
+  const phaseCommitKey = useMemo(() => {
+    if (phase !== 'constrain') return 'no-commit';
+    // 仅当 pending 有内容才触发合并
+    if (pendingSet.size === 0) return 'no-commit';
+    // 触发一次合并：用 seed 变化保证 UI 更新
+    setInterestSet((prev) => {
+      const next = new Set(prev);
+      for (const t of pendingSet) next.add(t);
+      return next;
+    });
+    setPendingSet(new Set());
+    // 返回一个 key（无实际意义）
+    return `commit-${seed}-${pendingSet.size}`;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase]); // 故意只依赖 phase，保证“只在阶段切换到 constrain 时”发生
 
   // 探索位位置：用 seed 打散
   const explorePositions = useMemo(() => {
@@ -93,16 +117,16 @@ const DiversityControl: React.FC = () => {
     if (phase === 'expand') {
       return {
         badge: 'B',
-        title: '兴趣探索（探索位注入）',
-        subtitle: '预留少量位置展示邻近内容，用反馈判断是否扩充画像。',
-        note: '探索通常是“邻近探索”，而不是随机推荐。',
+        title: '兴趣探索（邻近候选）',
+        subtitle: '探索位只从邻近集合中抽取，用反馈判断是否值得扩充画像。',
+        note: '这一步只做“验证”，不立刻改变主序位结构。',
       };
     }
     return {
       badge: 'C',
       title: '多目标重排（相关性 × 多样性平衡）',
-      subtitle: '在保持相关的同时，降低连续相似结果密度，并持续进行探索。',
-      note: '常见落点在重排/过滤附近：约束最终展示形态。',
+      subtitle: '将探索命中的内容纳入画像后，再进行重排；同时引入新方向补充探索。',
+      note: '既降低连续相似密度，也避免探索池枯竭。',
     };
   }, [phase]);
 
@@ -116,87 +140,74 @@ const DiversityControl: React.FC = () => {
     }
     if (phase === 'expand') {
       return [
-        '• 预留少量探索预算：从“邻近候选”中挑选不重复内容进入探索位。',
-        '• 通过反馈（点赞/完播/停留等）判断是否将其纳入兴趣资产。',
+        '• 只在邻近候选集合内做探索：用少量位置测试兴趣边界。',
+        '• Like 等反馈先进入“待确认集合”，用于后续阶段的画像扩充决策。',
       ];
     }
     return [
-      '• 将“已命中”的探索内容纳入兴趣资产：后续更可能进入主序位（不再只是探索位）。',
-      '• 探索不会枯竭：当邻近池命中较多，会引入新的候选方向做补充探索。',
-      '• 常见实现可包含 MMR 类思想：在相关性之外加入相似度惩罚（此处为示意）。',
+      '• 将探索命中的候选纳入画像：随后更可能进入主序位相关池。',
+      '• 同时引入新的候选方向补充探索，避免探索池枯竭。',
+      '• 重排时可加入 MMR 类思想：相关性之外加入相似度惩罚（此处为示意）。',
     ];
   }, [phase]);
 
-  // ——相关池：主兴趣 + 同主题邻近 + 已纳入兴趣资产（= 进入主序位）
+  // ========== 关键池子定义 ==========
+  const NEAR: number[] = [3, 4, 5];     // 邻近候选（兴趣探索阶段唯一允许的探索来源）
+  const FRESH: number[] = [6, 7, 8];    // 新方向候选（只在多目标重排阶段出现）
+
+  // ✅ 主序位相关池：在 expand 阶段不吸收 pending；在 constrain 阶段才吸收 interestSet
   const corePool = useMemo(() => {
+    // 生效兴趣（只包含已提交的 interestSet，不包含 pendingSet）
     const interestArr = Array.from(interestSet).filter((x) => x !== primary);
+
     if (interestArr.length === 0) return [0, 0, 0, 1, 2];
     if (interestArr.length === 1) return [0, 0, interestArr[0], 1, 2, 0];
     return [0, 0, interestArr[0], interestArr[1], 1, 2, 0];
   }, [interestSet, primary]);
 
-  // ✅ 新逻辑：探索位候选池 = “邻近复测（降权）” + “新方向探索（补充）”
-  // - 没 Like 不等于“不喜欢”：邻近内容可复测，但权重低于新方向/或低于未命中次数（这里只做示意权重）
-  // - 当 3/4/5 都 Like 后：邻近池不会枯竭，探索位会更多来自 6/7/8
-  const exploreCandidatePool = useMemo(() => {
-    const near = [3, 4, 5];     // 邻近候选
-    const fresh = [6, 7, 8];    // 新方向候选
+  // ✅ 兴趣探索阶段的探索池：只允许 NEAR（不允许 FRESH）
+  const explorePoolExpand = useMemo(() => {
+    // 如果 pending 已经点过了，也可以少量再出现（复测/补强），但仍只在 NEAR 内
+    const likedNear = NEAR.filter((t) => pendingSet.has(t) || interestSet.has(t));
+    const unlikedNear = NEAR.filter((t) => !pendingSet.has(t) && !interestSet.has(t));
 
-    const likedNear = near.filter((t) => interestSet.has(t));
-    const unlikedNear = near.filter((t) => !interestSet.has(t));
-
-    // ✅ 复测池（降权）：未 Like 的邻近候选仍会出现，但不等于“不喜欢”
-    // 用“重复次数”做权重：次数越多权重越大
-    const retestWeighted = [
-      ...unlikedNear,           // 1x（低权重）
-      ...(exploreRatio > 0.24 ? unlikedNear : []), // 在更右侧（探索预算更大）时，允许更多复测
+    // 比例示意：未命中的邻近更常出现，命中的也会再出现少量（利于你讲“验证”）
+    return [
+      ...unlikedNear,
+      ...unlikedNear,
+      ...likedNear,
     ];
+  }, [pendingSet, interestSet]);
 
-    // ✅ 新方向池：当邻近命中越来越多时，增加新方向的权重
-    // 命中越多，越需要“补充探索”
-    const saturation = likedNear.length / near.length; // 0..1
-    const freshBoost =
-      saturation >= 1
-        ? 3 // 邻近全命中：强力引入新方向
-        : saturation >= 2 / 3
-        ? 2
-        : 1;
+  // ✅ 多目标重排阶段的探索池：NEAR（未命中可复测、降权） + FRESH（新方向补充）
+  const explorePoolConstrain = useMemo(() => {
+    const likedNear = NEAR.filter((t) => interestSet.has(t)); // 已提交命中
+    const unlikedNear = NEAR.filter((t) => !interestSet.has(t)); // 仍未命中（不等于不喜欢，只是未确认）
+
+    // 邻近命中“越多”，越需要新方向补充探索
+    const saturation = likedNear.length / NEAR.length; // 0..1
+    const freshBoost = saturation >= 1 ? 3 : saturation >= 2 / 3 ? 2 : 1;
 
     const freshWeighted: number[] = [];
-    for (let k = 0; k < freshBoost; k++) freshWeighted.push(...fresh);
+    for (let k = 0; k < freshBoost; k++) freshWeighted.push(...FRESH);
 
-    // ✅ 在“兴趣探索”阶段：更偏邻近；在“多目标重排”阶段：邻近 + 新方向混合更明显
-    if (phase === 'expand') {
-      // expand：主要邻近（含复测），少量新方向（尤其当邻近命中较多时）
-      return [
-        ...retestWeighted,
-        ...unlikedNear, // 邻近在 expand 更常出现
-        ...freshWeighted.slice(0, 3 + likedNear.length), // 少量新方向，命中越多越多
-      ].filter((t) => t !== primary);
-    }
+    // unlikedNear 仍会复测，但降权（少一些）
+    const retestWeighted = [
+      ...unlikedNear, // 1x
+      ...(exploreRatio > 0.28 ? unlikedNear : []), // 预算更大时允许更频繁复测
+    ];
 
-    // constrain：探索位更强调“持续探索”，新方向权重更明显
-    if (phase === 'constrain') {
-      return [
-        ...retestWeighted,          // 仍可复测（但降权）
-        ...freshWeighted,           // 新方向补充探索
-      ].filter((t) => t !== primary);
-    }
+    return [
+      ...retestWeighted,
+      ...freshWeighted,
+    ];
+  }, [interestSet, exploreRatio]);
 
-    // optimize 不走探索位（返回也无所谓）
-    return [...near, ...fresh].filter((t) => t !== primary);
-  }, [interestSet, exploreRatio, phase, primary]);
-
-  // ✅ 用 exploreRatio 控制“探索更宽/更窄”的示意：越往右，新方向的占比更高
-  const explorePickPool = useMemo(() => {
-    const r = clamp(exploreRatio, 0.05, 0.35);
-    if (r < 0.14) return exploreCandidatePool.slice(0, 3);
-    if (r < 0.24) return exploreCandidatePool;
-    return [...exploreCandidatePool, ...exploreCandidatePool]; // 增强探索密度（示意）
-  }, [exploreCandidatePool, exploreRatio]);
-
-  // ✅ 关键：Like 过的内容到了“多目标重排”阶段将进入主序位（不再算探索位）
+  // ========= 生成 feed =========
   const feed = useMemo(() => {
+    // 选择本阶段探索池
+    const explorePool = phase === 'expand' ? explorePoolExpand : explorePoolConstrain;
+
     const pick = (i: number) => {
       // A：相关性优先（仍允许轻微扩散，保证 slider 在 A 也有体感）
       if (phase === 'optimize') {
@@ -205,26 +216,26 @@ const DiversityControl: React.FC = () => {
         return gate < p ? ([1, 2][(i + seed) % 2]) : 0;
       }
 
-      // B：探索位注入（探索位从 explorePickPool 抽；主序位从 corePool 抽）
+      // B：兴趣探索（探索位=NEAR）
       if (phase === 'expand') {
-        if (exploreSet.has(i)) return explorePickPool[(i + seed) % explorePickPool.length];
+        if (exploreSet.has(i)) return explorePool[(i + seed) % explorePool.length];
         return corePool[(i + seed) % corePool.length];
       }
 
-      // C：多目标重排（探索位从 explorePickPool 抽；主序位从 corePool 抽；并避免连续重复）
+      // C：多目标重排（探索位=NEAR 复测 + FRESH 新方向）
       const base = exploreSet.has(i)
-        ? explorePickPool[(i + seed) % explorePickPool.length]
+        ? explorePool[(i + seed) % explorePool.length]
         : corePool[(i + seed) % corePool.length];
 
       if (i === 0) return base;
 
       const prev = exploreSet.has(i - 1)
-        ? explorePickPool[(i - 1 + seed) % explorePickPool.length]
+        ? explorePool[(i - 1 + seed) % explorePool.length]
         : corePool[(i - 1 + seed) % corePool.length];
 
       // 连续重复 -> 换一个（示意相似度惩罚）
       if (base === prev) {
-        const alt = exploreSet.has(i) ? explorePickPool : corePool;
+        const alt = exploreSet.has(i) ? explorePool : corePool;
         return alt[(i + seed + 1) % alt.length];
       }
       return base;
@@ -233,6 +244,8 @@ const DiversityControl: React.FC = () => {
     const scoreFor = (i: number, t: number) => {
       const base = 0.80 + (i % 4) * 0.03;
       const primaryBoost = t === primary ? 0.06 : 0;
+
+      // ✅ 只有“已提交”的兴趣（interestSet）在重排阶段会提升主序位的可见得分
       const inInterestBoost = interestSet.has(t) ? 0.03 : 0;
 
       // 探索位轻微折扣（示意）
@@ -249,17 +262,19 @@ const DiversityControl: React.FC = () => {
       const t = pick(i);
       const score = scoreFor(i, t);
 
-      // ✅ 探索位身份：位置在 exploreSet，且该类型尚未纳入 interest（且不为 primary）
+      // ✅ 探索位身份规则：
+      // - expand：探索位就是探索位（即便 pending Like 了，也仍显示为探索位）
+      // - constrain：如果该类型已提交进 interestSet，则不再算探索位（进入主序位）
       const isExplore =
         phase !== 'optimize' &&
         exploreSet.has(i) &&
-        !interestSet.has(t) &&
-        t !== primary;
+        t !== primary &&
+        (phase === 'expand' ? true : !interestSet.has(t));
 
       const slotTag = phase === 'optimize' ? '主序位' : isExplore ? '探索位' : '主序位';
 
       return {
-        id: `${phase}-${seed}-${i}`,
+        id: `${phase}-${seed}-${i}-${phaseCommitKey}`, // phaseCommitKey 确保提交后 UI 刷新
         i,
         typeIndex: t,
         score,
@@ -274,14 +289,33 @@ const DiversityControl: React.FC = () => {
     }
 
     return items.map((x, idx) => ({ ...x, rank: idx + 1 }));
-  }, [phase, seed, exploreSet, exploreRatio, primary, interestSet, corePool, explorePickPool]);
+  }, [
+    phase,
+    seed,
+    exploreSet,
+    exploreRatio,
+    primary,
+    interestSet,
+    pendingSet,
+    corePool,
+    explorePoolExpand,
+    explorePoolConstrain,
+    phaseCommitKey,
+  ]);
 
-  // ✅ 指标：随 slider 增长 -> 多样性总体上升；Like 扩圈 -> 多样性/相关性也变化
+  // ✅ 指标：Like 在 expand 阶段只会轻微变化（因为只是 pending），到 constrain 阶段会更明显（提交生效）
   const metrics = useMemo(() => {
     const typeIdxs = feed.map((f) => f.typeIndex);
 
+    // effectiveInterest：只有 constrain 才把 interestSet “生效”得更强；
+    // expand 阶段 pending 只做轻微加成（示意“确认前影响较弱”）
+    const effectiveInterest = new Set<number>(interestSet);
+    if (phase === 'expand') {
+      for (const t of pendingSet) effectiveInterest.add(t);
+    }
+
     let div = diversityScore(typeIdxs);
-    let rel = relevanceScore(typeIdxs, interestSet, primary);
+    let rel = relevanceScore(typeIdxs, effectiveInterest, primary);
 
     const phaseW = phase === 'optimize' ? 0.25 : phase === 'expand' ? 0.85 : 0.75;
     const rNorm = (clamp(exploreRatio, 0.05, 0.35) - 0.05) / (0.35 - 0.05); // 0..1
@@ -289,16 +323,20 @@ const DiversityControl: React.FC = () => {
     div = clamp(Math.round(div + phaseW * (14 * rNorm)), 10, 92);
     rel = clamp(Math.round(rel - phaseW * (7 * rNorm)), 70, 99);
 
-    const interestN = Array.from(interestSet).filter((x) => x !== primary).length;
-    div = clamp(div + clamp(Math.round(interestN * 2.0), 0, 8), 10, 95);
-    rel = clamp(rel + clamp(Math.round(interestN * 1.4), 0, 6), 70, 99);
+    const confirmedN = Array.from(interestSet).filter((x) => x !== primary).length;
+    const pendingN = Array.from(pendingSet).filter((x) => x !== primary).length;
+
+    // ✅ pending 影响弱，confirmed 影响强
+    div = clamp(div + clamp(Math.round(confirmedN * 2.0 + pendingN * 0.8), 0, 10), 10, 95);
+    rel = clamp(rel + clamp(Math.round(confirmedN * 1.4 + pendingN * 0.5), 0, 7), 70, 99);
 
     return { relevance: rel, diversity: div };
-  }, [feed, interestSet, phase, exploreRatio, primary]);
+  }, [feed, interestSet, pendingSet, phase, exploreRatio, primary]);
 
+  // Like：只在 expand 阶段出现按钮；Like 进入 pending，不立刻变主序位
   const onLike = (typeIndex: number) => {
     if (typeIndex === primary) return;
-    setInterestSet((prev) => {
+    setPendingSet((prev) => {
       const next = new Set(prev);
       next.add(typeIndex);
       return next;
@@ -307,6 +345,12 @@ const DiversityControl: React.FC = () => {
   };
 
   const removeInterest = (typeIndex: number) => {
+    // 移除时，同时从 pending 与 confirmed 都移除（更直观）
+    setPendingSet((prev) => {
+      const next = new Set(prev);
+      next.delete(typeIndex);
+      return next;
+    });
     setInterestSet((prev) => {
       const next = new Set(prev);
       next.delete(typeIndex);
@@ -316,6 +360,7 @@ const DiversityControl: React.FC = () => {
   };
 
   const resetInterest = () => {
+    setPendingSet(new Set());
     setInterestSet(new Set());
     setSeed((s) => s + 1);
   };
@@ -335,7 +380,7 @@ const DiversityControl: React.FC = () => {
     </div>
   );
 
-  // ✅ 三段颜色（画在轨道 div 上）
+  // 三段颜色（画在轨道 div 上）
   const sliderStops = useMemo(() => {
     const t1 = ((0.14 - 0.05) / (0.35 - 0.05)) * 100;
     const t2 = ((0.24 - 0.05) / (0.35 - 0.05)) * 100;
@@ -462,9 +507,7 @@ const DiversityControl: React.FC = () => {
                   <span>多目标重排</span>
                 </div>
 
-                <div className="text-[10px] text-gray-500 mt-1">
-                  拉动后：探索位数量与位置会变化，推荐结果与指标会随之变化。
-                </div>
+                <div className="text-[10px] text-gray-500 mt-1">拉动后：探索位数量与位置会变化，推荐结果与指标会随之变化。</div>
               </div>
             </div>
           </div>
@@ -487,6 +530,8 @@ const DiversityControl: React.FC = () => {
                     <AnimatePresence mode="popLayout">
                       {feed.map((item, idx) => {
                         const t = types[item.typeIndex];
+                        const isPending = pendingSet.has(item.typeIndex) && phase === 'expand';
+                        const isConfirmed = interestSet.has(item.typeIndex) && phase === 'constrain';
 
                         return (
                           <motion.div
@@ -524,8 +569,17 @@ const DiversityControl: React.FC = () => {
                             <div className="absolute inset-0 flex flex-col items-center justify-center">
                               <div className="text-3xl drop-shadow-lg">{t.emoji}</div>
                               <div className="mt-1 text-[11px] font-black text-white/90">{t.name}</div>
-                              {interestSet.has(item.typeIndex) && item.typeIndex !== primary && (
-                                <div className="mt-1 text-[10px] font-mono text-emerald-200/90">in interest</div>
+
+                              {/* ✅ 不增加新的右上“画像提示”，只在卡片内部做轻量状态 */}
+                              {isPending && (
+                                <div className="mt-1 text-[10px] font-mono text-emerald-200/90">
+                                  pending
+                                </div>
+                              )}
+                              {isConfirmed && item.typeIndex !== primary && (
+                                <div className="mt-1 text-[10px] font-mono text-emerald-200/90">
+                                  in interest
+                                </div>
                               )}
                             </div>
 
@@ -573,7 +627,7 @@ const DiversityControl: React.FC = () => {
 
                   <AnimatePresence mode="wait">
                     <motion.div
-                      key={`${phase}-${seed}-${interestSet.size}-${exploreSlots}`}
+                      key={`${phase}-${seed}-${interestSet.size}-${pendingSet.size}-${exploreSlots}`}
                       initial={{ opacity: 0, y: 8 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -8 }}
@@ -589,24 +643,29 @@ const DiversityControl: React.FC = () => {
                         <div>
                           {phase === 'expand' ? (
                             <>
-                              你可以对探索位内容点击 <span className="text-emerald-200 font-bold">Like</span>，用来模拟“探索命中”后画像扩充。
-                              未被 Like 的内容不等于不相关：后续可能降权复测，也可能引入新的候选方向继续探索。
+                              你可以对探索位内容点击 <span className="text-emerald-200 font-bold">Like</span>，
+                              用来模拟“探索命中”。命中会先进入待确认集合，进入下一阶段后再纳入兴趣画像并影响主序位。
+                            </>
+                          ) : phase === 'constrain' ? (
+                            <>
+                              在多目标重排阶段，已命中的内容会更倾向进入主序位；同时会引入新的候选方向补充探索，避免探索池枯竭。
                             </>
                           ) : (
                             <>
-                              这里展示多样性控制对结果形态的影响。探索位占比控制探索预算，用户反馈决定探索是否转化为兴趣资产。
+                              这里展示多样性控制对结果形态的影响。探索位占比控制探索预算，反馈用于后续画像扩充决策。
                             </>
                           )}
                         </div>
                       </div>
 
-                      {Array.from(interestSet).filter((x) => x !== primary).length > 0 && (
+                      {(pendingSet.size > 0 || interestSet.size > 0) && (
                         <div className="pt-1">
                           <div className="text-[10px] font-black tracking-widest uppercase text-gray-500 mb-2">
                             已纳入兴趣画像（演示）
                           </div>
 
                           <div className="flex flex-wrap gap-2">
+                            {/* ✅ 只把“已提交”的展示为纳入画像；pending 不算纳入画像 */}
                             {Array.from(interestSet)
                               .filter((tIdx) => tIdx !== primary)
                               .map((tIdx) => (
@@ -628,6 +687,13 @@ const DiversityControl: React.FC = () => {
                               reset
                             </button>
                           </div>
+
+                          {/* ✅ pending 只作为提示，不算“已纳入画像” */}
+                          {pendingSet.size > 0 && phase === 'expand' && (
+                            <div className="mt-2 text-[10px] text-gray-500">
+                              待确认：{Array.from(pendingSet).map((i) => types[i]?.name).join(' / ')}
+                            </div>
+                          )}
                         </div>
                       )}
                     </motion.div>
