@@ -284,6 +284,13 @@ const StrategyIntervention: React.FC = () => {
                 })}
               </div>
 
+              <div className="mt-6 text-[11px] text-gray-500 leading-relaxed">
+                你后续讲：商业/生态可以代表广告、活动、冷启、新作者保护、风控、治理、多样性等约束，
+                最终落到<strong className="text-gray-300">重排</strong>阶段影响 Top-K。
+              </div>
+            </div>
+          </div>
+
           {/* ✅ 改动 4：底部留一点 padding，滚动时更舒服 */}
           <div className="h-8 bg-[#030712]" />
         </div>
