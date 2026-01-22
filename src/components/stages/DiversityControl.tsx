@@ -41,15 +41,6 @@ const DiversityControl: React.FC = () => {
   const [primary] = useState(0);
   const [secondary, setSecondary] = useState<number | null>(null);
 
-  // 自动轮播三阶段（如果你想全手动讲解，把这个 useEffect 删掉）
-  useEffect(() => {
-    const order: Phase[] = ['optimize', 'expand', 'constrain'];
-    const timer = setInterval(() => {
-      setPhase((p) => order[(order.indexOf(p) + 1) % order.length]);
-      setSeed((s) => s + 1);
-    }, 5200);
-    return () => clearInterval(timer);
-  }, []);
 
   // 内容类型：保持严谨、通用、讲座可用
   const types = useMemo(
