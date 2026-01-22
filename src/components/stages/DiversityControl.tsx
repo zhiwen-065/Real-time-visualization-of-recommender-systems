@@ -94,7 +94,7 @@ const DiversityControl: React.FC = () => {
     }
     return {
       badge: 'C',
-      title: '结果约束（相关性 × 多样性平衡）',
+      title: '多目标重排（相关性 × 多样性平衡）',
       subtitle: '对过于相似的结果施加约束，避免连续重复，同时保留高相关内容。',
       note: '常见落点在重排/过滤附近：约束最终展示形态。',
     };
@@ -272,35 +272,21 @@ const DiversityControl: React.FC = () => {
     </div>
   );
 
-  // ✅ 让 slider “那条线”本身分三段颜色（不额外画色条）
   const sliderBg = useMemo(() => {
-    // 0.05~0.35 映射到 0~100
-    const p = ((exploreRatio - 0.05) / (0.35 - 0.05)) * 100;
-    const pct = clamp(p, 0, 100);
-
     // 三段阈值对应位置（按 0.14 / 0.24）
-    const t1 = ((0.14 - 0.05) / (0.35 - 0.05)) * 100; // optimize->expand
-    const t2 = ((0.24 - 0.05) / (0.35 - 0.05)) * 100; // expand->constrain
+    const t1 = ((0.14 - 0.05) / (0.35 - 0.05)) * 100; // optimize -> expand
+    const t2 = ((0.24 - 0.05) / (0.35 - 0.05)) * 100; // expand -> third stage
 
-    // 背景为三段渐变；同时用一个“前景高亮到当前值”的方式更直观
-    // 这里用双层背景：上层到当前位置更亮，下层整体分段更淡
-    return {
-      base: `linear-gradient(90deg,
-        rgba(59,130,246,0.35) 0%,
-        rgba(59,130,246,0.35) ${t1}%,
-        rgba(16,185,129,0.32) ${t1}%,
-        rgba(16,185,129,0.32) ${t2}%,
-        rgba(168,85,247,0.30) ${t2}%,
-        rgba(168,85,247,0.30) 100%
-      )`,
-      fill: `linear-gradient(90deg,
-        rgba(255,255,255,0.10) 0%,
-        rgba(255,255,255,0.10) ${pct}%,
-        rgba(255,255,255,0.00) ${pct}%,
-        rgba(255,255,255,0.00) 100%
-      )`,
-    };
+    return `linear-gradient(90deg,
+      rgba(59,130,246,0.75) 0%,
+      rgba(59,130,246,0.75) ${t1}%,
+      rgba(16,185,129,0.75) ${t1}%,
+      rgba(16,185,129,0.75) ${t2}%,
+      rgba(168,85,247,0.75) ${t2}%,
+      rgba(168,85,247,0.75) 100%
+    )`;
   }, [exploreRatio]);
+
 
   return (
     <div className="w-full h-full overflow-y-auto px-4 md:px-6 py-8">
@@ -361,8 +347,7 @@ const DiversityControl: React.FC = () => {
                   }}
                   className="w-full accent-emerald-400"
                   style={{
-                    // 三段色 + 到当前值的轻高亮（同一条线）
-                    backgroundImage: `${sliderBg.fill}, ${sliderBg.base}`,
+                    backgroundImage: sliderBg,
                     borderRadius: 9999,
                     height: 10,
                   }}
@@ -371,7 +356,7 @@ const DiversityControl: React.FC = () => {
                 <div className="mt-2 flex justify-between text-[10px] text-gray-500">
                   <span>相关性优先</span>
                   <span>兴趣探索</span>
-                  <span>结果约束</span>
+                  <span>多目标重排</span>
                 </div>
 
                 <div className="text-[10px] text-gray-500 mt-1">
