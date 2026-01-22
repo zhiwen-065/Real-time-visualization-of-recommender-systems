@@ -9,8 +9,8 @@ type Candidate = {
 };
 
 type ScoredCandidate = Candidate & {
-  biz: number;   // -1~1
-  eco: number;   // -1~1
+  biz: number; // -1~1
+  eco: number; // -1~1
   final: number; // 0~100
 };
 
@@ -75,8 +75,10 @@ const StrategyIntervention: React.FC = () => {
   const ecoAngle = activeScore.eco * 60;
 
   return (
-    <div className="w-full h-full flex items-center justify-center px-10">
-      <div className="w-full max-w-6xl">
+    // ✅ 改动 1：外层容器允许纵向滚动 + 拉高可视高度
+    <div className="w-full h-[100dvh] overflow-y-auto flex items-start justify-center px-6 md:px-10 py-6">
+      {/* ✅ 改动 2：把整体宽度上限从 max-w-6xl 提升，并尽量吃满屏幕 */}
+      <div className="w-full max-w-[1400px]">
         <div className="glass rounded-[2rem] border border-white/10 overflow-hidden shadow-[0_0_70px_rgba(236,72,153,0.12)]">
           {/* Header */}
           <div className="px-8 py-5 flex items-center justify-between border-b border-white/10 bg-black/30">
@@ -99,7 +101,8 @@ const StrategyIntervention: React.FC = () => {
           </div>
 
           {/* Main */}
-          <div className="relative grid grid-cols-12 min-h-[520px] bg-[#030712]">
+          {/* ✅ 改动 3：不给 min-h 卡死，让内容按需撑开；同时保留你原来的 grid 和布局 */}
+          <div className="relative grid grid-cols-12 bg-[#030712]">
             {/* Left: Candidates */}
             <div className="col-span-12 lg:col-span-4 p-8 border-b lg:border-b-0 lg:border-r border-white/10">
               <div className="flex items-center justify-between mb-6">
@@ -206,20 +209,8 @@ const StrategyIntervention: React.FC = () => {
                 </div>
 
                 <div className="space-y-6">
-                  <Dial
-                    title="商业"
-                    color="pink"
-                    value={activeScore.biz}
-                    angle={bizAngle}
-                    hint={`Δ = ${round1(weights.biz * activeScore.biz)}`}
-                  />
-                  <Dial
-                    title="生态"
-                    color="emerald"
-                    value={activeScore.eco}
-                    angle={ecoAngle}
-                    hint={`Δ = ${round1(weights.eco * activeScore.eco)}`}
-                  />
+                  <Dial title="商业" color="pink" value={activeScore.biz} angle={bizAngle} hint={`Δ = ${round1(weights.biz * activeScore.biz)}`} />
+                  <Dial title="生态" color="emerald" value={activeScore.eco} angle={ecoAngle} hint={`Δ = ${round1(weights.eco * activeScore.eco)}`} />
                 </div>
 
                 {/* Current candidate result */}
@@ -293,12 +284,8 @@ const StrategyIntervention: React.FC = () => {
                 })}
               </div>
 
-              <div className="mt-6 text-[11px] text-gray-500 leading-relaxed">
-                你后续讲：商业/生态可以代表广告、活动、冷启、新作者保护、风控、治理、多样性等约束，
-                最终落到<strong className="text-gray-300">重排</strong>阶段影响 Top-K。
-              </div>
-            </div>
-          </div>
+          {/* ✅ 改动 4：底部留一点 padding，滚动时更舒服 */}
+          <div className="h-8 bg-[#030712]" />
         </div>
       </div>
     </div>
