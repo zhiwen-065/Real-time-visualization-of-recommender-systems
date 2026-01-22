@@ -11,16 +11,6 @@ const DiversityControl: React.FC = () => {
   const [seed, setSeed] = useState(0);
   const [exploreRatio, setExploreRatio] = useState(0.18);
 
-  // 自动逐一播放（你想全手动讲，就把这段 useEffect 删掉）
-  useEffect(() => {
-    const order: Phase[] = ['relevance', 'explore', 'rerank'];
-    const t = setInterval(() => {
-      setPhase((p) => order[(order.indexOf(p) + 1) % order.length]);
-      setSeed((s) => s + 1);
-    }, 5200);
-    return () => clearInterval(t);
-  }, []);
-
   const PhaseButton = ({ id, label }: { id: Phase; label: string }) => (
     <button
       onClick={() => {
