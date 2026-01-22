@@ -44,14 +44,20 @@ const DiversityControl: React.FC = () => {
   const [interestSet, setInterestSet] = useState<Set<number>>(() => new Set());
 
   // 内容类型：保持严谨、通用
+  // ✅ 新增一些“跨圈探索”的类型（用于：当原邻近池都命中/或需要新探索时）
   const types = useMemo(
     () => [
-      { name: '登山徒步', emoji: '⛰️', grad: 'from-emerald-500/35 to-emerald-900/10' }, // primary
-      { name: '户外装备', emoji: '🎒', grad: 'from-teal-500/30 to-teal-900/10' },
-      { name: '露营生活', emoji: '⛺', grad: 'from-lime-500/30 to-lime-900/10' },
-      { name: '路线攻略', emoji: '🗺️', grad: 'from-cyan-500/25 to-cyan-900/10' }, // neighbor
-      { name: '自然人文', emoji: '🌍', grad: 'from-indigo-500/25 to-indigo-900/10' }, // neighbor
-      { name: '轻户外', emoji: '🌿', grad: 'from-green-500/25 to-green-900/10' }, // neighbor
+      { name: '登山徒步', emoji: '⛰️', grad: 'from-emerald-500/35 to-emerald-900/10' }, // 0 primary
+      { name: '户外装备', emoji: '🎒', grad: 'from-teal-500/30 to-teal-900/10' },       // 1
+      { name: '露营生活', emoji: '⛺', grad: 'from-lime-500/30 to-lime-900/10' },        // 2
+      { name: '路线攻略', emoji: '🗺️', grad: 'from-cyan-500/25 to-cyan-900/10' },       // 3 neighbor
+      { name: '自然人文', emoji: '🌍', grad: 'from-indigo-500/25 to-indigo-900/10' },   // 4 neighbor
+      { name: '轻户外', emoji: '🌿', grad: 'from-green-500/25 to-green-900/10' },       // 5 neighbor
+
+      // ✅ 新探索方向（跨圈、但仍可解释为“语义邻近/潜在相关”的候选）
+      { name: '摄影纪实', emoji: '📷', grad: 'from-fuchsia-500/20 to-fuchsia-900/10' }, // 6 new
+      { name: '科学科普', emoji: '🧪', grad: 'from-sky-500/20 to-sky-900/10' },         // 7 new
+      { name: '城市漫游', emoji: '🏙️', grad: 'from-violet-500/20 to-violet-900/10' },  // 8 new
     ],
     []
   );
@@ -95,7 +101,7 @@ const DiversityControl: React.FC = () => {
     return {
       badge: 'C',
       title: '多目标重排（相关性 × 多样性平衡）',
-      subtitle: '对过于相似的结果施加约束，避免连续重复，同时保留高相关内容。',
+      subtitle: '在保持相关的同时，降低连续相似结果密度，并持续进行探索。',
       note: '常见落点在重排/过滤附近：约束最终展示形态。',
     };
   }, [phase]);
@@ -110,39 +116,84 @@ const DiversityControl: React.FC = () => {
     }
     if (phase === 'expand') {
       return [
-        '• 预留少量探索预算：在相关候选中选取“邻近但不同”的内容。',
+        '• 预留少量探索预算：从“邻近候选”中挑选不重复内容进入探索位。',
         '• 通过反馈（点赞/完播/停留等）判断是否将其纳入兴趣资产。',
       ];
     }
     return [
-      '• 将“已命中”的探索内容纳入兴趣资产：后续可进入主序位（不再只是探索位）。',
-      '• 对展示结果施加形态约束：降低连续相似内容密度（示意包含 MMR 类思想：相似度惩罚）。',
+      '• 将“已命中”的探索内容纳入兴趣资产：后续更可能进入主序位（不再只是探索位）。',
+      '• 探索不会枯竭：当邻近池命中较多，会引入新的候选方向做补充探索。',
+      '• 常见实现可包含 MMR 类思想：在相关性之外加入相似度惩罚（此处为示意）。',
     ];
   }, [phase]);
-
-  // ——探索池：只用于“探索位”，会排除已纳入兴趣的类型
-  const exploreNeighborPool = useMemo(() => {
-    const near = [3, 4, 5]; // 路线/人文/轻户外
-    const pool = near.filter((t) => !interestSet.has(t));
-    return pool.length > 0 ? pool : near; // 全被纳入时，仍保留一个可探索池（演示用）
-  }, [interestSet]);
 
   // ——相关池：主兴趣 + 同主题邻近 + 已纳入兴趣资产（= 进入主序位）
   const corePool = useMemo(() => {
     const interestArr = Array.from(interestSet).filter((x) => x !== primary);
-    // 保持“可讲解”的稳定形态：主兴趣占主导，兴趣资产逐步融入
     if (interestArr.length === 0) return [0, 0, 0, 1, 2];
     if (interestArr.length === 1) return [0, 0, interestArr[0], 1, 2, 0];
     return [0, 0, interestArr[0], interestArr[1], 1, 2, 0];
   }, [interestSet, primary]);
 
-  // ——用于阶段 B：探索更“宽/窄”的示意（但仍只在探索位里抽）
+  // ✅ 新逻辑：探索位候选池 = “邻近复测（降权）” + “新方向探索（补充）”
+  // - 没 Like 不等于“不喜欢”：邻近内容可复测，但权重低于新方向/或低于未命中次数（这里只做示意权重）
+  // - 当 3/4/5 都 Like 后：邻近池不会枯竭，探索位会更多来自 6/7/8
+  const exploreCandidatePool = useMemo(() => {
+    const near = [3, 4, 5];     // 邻近候选
+    const fresh = [6, 7, 8];    // 新方向候选
+
+    const likedNear = near.filter((t) => interestSet.has(t));
+    const unlikedNear = near.filter((t) => !interestSet.has(t));
+
+    // ✅ 复测池（降权）：未 Like 的邻近候选仍会出现，但不等于“不喜欢”
+    // 用“重复次数”做权重：次数越多权重越大
+    const retestWeighted = [
+      ...unlikedNear,           // 1x（低权重）
+      ...(exploreRatio > 0.24 ? unlikedNear : []), // 在更右侧（探索预算更大）时，允许更多复测
+    ];
+
+    // ✅ 新方向池：当邻近命中越来越多时，增加新方向的权重
+    // 命中越多，越需要“补充探索”
+    const saturation = likedNear.length / near.length; // 0..1
+    const freshBoost =
+      saturation >= 1
+        ? 3 // 邻近全命中：强力引入新方向
+        : saturation >= 2 / 3
+        ? 2
+        : 1;
+
+    const freshWeighted: number[] = [];
+    for (let k = 0; k < freshBoost; k++) freshWeighted.push(...fresh);
+
+    // ✅ 在“兴趣探索”阶段：更偏邻近；在“多目标重排”阶段：邻近 + 新方向混合更明显
+    if (phase === 'expand') {
+      // expand：主要邻近（含复测），少量新方向（尤其当邻近命中较多时）
+      return [
+        ...retestWeighted,
+        ...unlikedNear, // 邻近在 expand 更常出现
+        ...freshWeighted.slice(0, 3 + likedNear.length), // 少量新方向，命中越多越多
+      ].filter((t) => t !== primary);
+    }
+
+    // constrain：探索位更强调“持续探索”，新方向权重更明显
+    if (phase === 'constrain') {
+      return [
+        ...retestWeighted,          // 仍可复测（但降权）
+        ...freshWeighted,           // 新方向补充探索
+      ].filter((t) => t !== primary);
+    }
+
+    // optimize 不走探索位（返回也无所谓）
+    return [...near, ...fresh].filter((t) => t !== primary);
+  }, [interestSet, exploreRatio, phase, primary]);
+
+  // ✅ 用 exploreRatio 控制“探索更宽/更窄”的示意：越往右，新方向的占比更高
   const explorePickPool = useMemo(() => {
     const r = clamp(exploreRatio, 0.05, 0.35);
-    if (r < 0.14) return [exploreNeighborPool[0] ?? 3, exploreNeighborPool[0] ?? 3, exploreNeighborPool[1] ?? 4];
-    if (r < 0.24) return exploreNeighborPool;
-    return [...exploreNeighborPool, ...exploreNeighborPool, 4, 5].filter((x) => x !== undefined) as number[];
-  }, [exploreNeighborPool, exploreRatio]);
+    if (r < 0.14) return exploreCandidatePool.slice(0, 3);
+    if (r < 0.24) return exploreCandidatePool;
+    return [...exploreCandidatePool, ...exploreCandidatePool]; // 增强探索密度（示意）
+  }, [exploreCandidatePool, exploreRatio]);
 
   // ✅ 关键：Like 过的内容到了“多目标重排”阶段将进入主序位（不再算探索位）
   const feed = useMemo(() => {
@@ -154,26 +205,26 @@ const DiversityControl: React.FC = () => {
         return gate < p ? ([1, 2][(i + seed) % 2]) : 0;
       }
 
-      // B：探索位注入（探索位只从 explorePickPool 抽；主序位从 corePool 抽）
+      // B：探索位注入（探索位从 explorePickPool 抽；主序位从 corePool 抽）
       if (phase === 'expand') {
         if (exploreSet.has(i)) return explorePickPool[(i + seed) % explorePickPool.length];
         return corePool[(i + seed) % corePool.length];
       }
 
-      // C：多目标重排（探索位仍从 exploreNeighborPool 抽，但已命中兴趣资产的类型会更多出现在主序位）
+      // C：多目标重排（探索位从 explorePickPool 抽；主序位从 corePool 抽；并避免连续重复）
       const base = exploreSet.has(i)
-        ? exploreNeighborPool[(i + seed) % exploreNeighborPool.length]
+        ? explorePickPool[(i + seed) % explorePickPool.length]
         : corePool[(i + seed) % corePool.length];
 
       if (i === 0) return base;
 
       const prev = exploreSet.has(i - 1)
-        ? exploreNeighborPool[(i - 1 + seed) % exploreNeighborPool.length]
+        ? explorePickPool[(i - 1 + seed) % explorePickPool.length]
         : corePool[(i - 1 + seed) % corePool.length];
 
       // 连续重复 -> 换一个（示意相似度惩罚）
       if (base === prev) {
-        const alt = exploreSet.has(i) ? exploreNeighborPool : corePool;
+        const alt = exploreSet.has(i) ? explorePickPool : corePool;
         return alt[(i + seed + 1) % alt.length];
       }
       return base;
@@ -198,9 +249,7 @@ const DiversityControl: React.FC = () => {
       const t = pick(i);
       const score = scoreFor(i, t);
 
-      // ✅ 关键修正：探索位的“身份”会被兴趣资产重新定义
-      // - expand/constrain：位置在 exploreSet 里，且该类型尚未纳入 interest => 探索位
-      // - 一旦纳入 interest => 在重排阶段应视作主序位内容（不再只是探索位）
+      // ✅ 探索位身份：位置在 exploreSet，且该类型尚未纳入 interest（且不为 primary）
       const isExplore =
         phase !== 'optimize' &&
         exploreSet.has(i) &&
@@ -225,7 +274,7 @@ const DiversityControl: React.FC = () => {
     }
 
     return items.map((x, idx) => ({ ...x, rank: idx + 1 }));
-  }, [phase, seed, exploreSet, exploreRatio, primary, interestSet, corePool, exploreNeighborPool, explorePickPool]);
+  }, [phase, seed, exploreSet, exploreRatio, primary, interestSet, corePool, explorePickPool]);
 
   // ✅ 指标：随 slider 增长 -> 多样性总体上升；Like 扩圈 -> 多样性/相关性也变化
   const metrics = useMemo(() => {
@@ -237,13 +286,9 @@ const DiversityControl: React.FC = () => {
     const phaseW = phase === 'optimize' ? 0.25 : phase === 'expand' ? 0.85 : 0.75;
     const rNorm = (clamp(exploreRatio, 0.05, 0.35) - 0.05) / (0.35 - 0.05); // 0..1
 
-    // slider 越往右，多样性越高（示意）
     div = clamp(Math.round(div + phaseW * (14 * rNorm)), 10, 92);
-
-    // slider 越往右，相关性轻微下降（示意）
     rel = clamp(Math.round(rel - phaseW * (7 * rNorm)), 70, 99);
 
-    // Like 扩圈：兴趣资产增加 => 多样性可持续性更强；相关性“定义变宽”可回补
     const interestN = Array.from(interestSet).filter((x) => x !== primary).length;
     div = clamp(div + clamp(Math.round(interestN * 2.0), 0, 8), 10, 95);
     rel = clamp(rel + clamp(Math.round(interestN * 1.4), 0, 6), 70, 99);
@@ -253,14 +298,11 @@ const DiversityControl: React.FC = () => {
 
   const onLike = (typeIndex: number) => {
     if (typeIndex === primary) return;
-
     setInterestSet((prev) => {
       const next = new Set(prev);
       next.add(typeIndex);
       return next;
     });
-
-    // Like 后刷新结果（更有“实时反馈”感）
     setSeed((s) => s + 1);
   };
 
@@ -293,10 +335,10 @@ const DiversityControl: React.FC = () => {
     </div>
   );
 
-  // ✅ 三段颜色（直接画在“轨道 div”上，避免浏览器 range track 不吃 background 的问题）
+  // ✅ 三段颜色（画在轨道 div 上）
   const sliderStops = useMemo(() => {
-    const t1 = ((0.14 - 0.05) / (0.35 - 0.05)) * 100; // optimize -> expand
-    const t2 = ((0.24 - 0.05) / (0.35 - 0.05)) * 100; // expand -> constrain
+    const t1 = ((0.14 - 0.05) / (0.35 - 0.05)) * 100;
+    const t2 = ((0.24 - 0.05) / (0.35 - 0.05)) * 100;
     return { t1, t2 };
   }, []);
 
@@ -314,7 +356,6 @@ const DiversityControl: React.FC = () => {
 
   return (
     <div className="w-full h-full overflow-y-auto px-4 md:px-6 py-8">
-      {/* range 样式（确保三段颜色可见、thumb 可控） */}
       <style>{`
         .range3 {
           -webkit-appearance: none;
@@ -338,7 +379,7 @@ const DiversityControl: React.FC = () => {
           background: rgba(16,185,129,1);
           border: 2px solid rgba(255,255,255,0.25);
           box-shadow: 0 0 20px rgba(16,185,129,0.35);
-          margin-top: -3px; /* 让 thumb 垂直居中 */
+          margin-top: -3px;
           cursor: pointer;
         }
         .range3::-moz-range-track {
@@ -398,13 +439,8 @@ const DiversityControl: React.FC = () => {
               </div>
 
               <div className="mt-3">
-                {/* 轨道：三段颜色 */}
                 <div className="relative w-full">
-                  <div
-                    className="h-[12px] rounded-full"
-                    style={{ backgroundImage: sliderBg }}
-                  />
-                  {/* range：透明轨道 + 可见 thumb（覆盖在上面） */}
+                  <div className="h-[12px] rounded-full" style={{ backgroundImage: sliderBg }} />
                   <input
                     type="range"
                     min={0.05}
@@ -493,7 +529,7 @@ const DiversityControl: React.FC = () => {
                               )}
                             </div>
 
-                            {/* 右上：探索位可见交互（只在“兴趣探索”阶段展示） */}
+                            {/* 右上：探索位可见交互（只在兴趣探索阶段展示） */}
                             {item.isExplore && phase === 'expand' && (
                               <button
                                 onClick={() => onLike(item.typeIndex)}
@@ -554,7 +590,7 @@ const DiversityControl: React.FC = () => {
                           {phase === 'expand' ? (
                             <>
                               你可以对探索位内容点击 <span className="text-emerald-200 font-bold">Like</span>，用来模拟“探索命中”后画像扩充。
-                              被纳入的类型在后续阶段会进入主序位（不再只是探索位），并反映到指标变化中。
+                              未被 Like 的内容不等于不相关：后续可能降权复测，也可能引入新的候选方向继续探索。
                             </>
                           ) : (
                             <>
@@ -564,7 +600,6 @@ const DiversityControl: React.FC = () => {
                         </div>
                       </div>
 
-                      {/* ✅ 只保留这里的“已纳入兴趣画像” */}
                       {Array.from(interestSet).filter((x) => x !== primary).length > 0 && (
                         <div className="pt-1">
                           <div className="text-[10px] font-black tracking-widest uppercase text-gray-500 mb-2">
