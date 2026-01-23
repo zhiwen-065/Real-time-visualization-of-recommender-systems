@@ -179,7 +179,7 @@ const DeepRanking: React.FC = () => {
     };
   }, [preds, shortlist, tick]);
 
-  // 选择一个“焦点候选”用于讲解：展示它从输入信号到多任务分数再到融合分/门控的路径。
+  // 选择一个“焦点候选”用于讲解：展示它从输入信号到多任务分数再到融合分/门控的路径
   const focusIdx = useMemo(() => (tick * 4) % candidates.length, [tick, candidates.length]);
   const focus = candidates[focusIdx];
   const focusPred = preds[focusIdx];
