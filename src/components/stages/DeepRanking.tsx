@@ -395,7 +395,7 @@ const DeepRanking: React.FC = () => {
                     <div className="flex items-center gap-2">
                       <Activity className="w-4 h-4 text-blue-300" />
                       <div className="text-[11px] text-gray-300 leading-relaxed">
-                        中间栏支持滚动，用于分段解释精排的工作内容与输出边界。
+                        短名单大小为TOPK。
                       </div>
                     </div>
                   </div>
