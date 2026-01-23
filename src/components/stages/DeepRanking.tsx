@@ -215,69 +215,74 @@ const DeepRanking: React.FC = () => {
           </div>
 
           {/* Body */}
-          <div className="flex-1 grid grid-cols-12 bg-[#030712] rounded-b-[2rem] overflow-hidden">
-            {/* Left: 流程图（更可读，不用点阵） */}
-            <div className="col-span-12 lg:col-span-4 border-b lg:border-b-0 lg:border-r border-white/10 p-7">
-              <div className="rounded-[1.6rem] border border-white/10 bg-white/5 p-6">
-                <div className="flex items-center justify-between">
-                  <div className="text-[12px] font-black text-gray-200">计算路径（示意）</div>
-                  <div className="text-[10px] font-mono text-gray-500 uppercase tracking-widest">
-                    input {N_IN.toLocaleString()} → shortlist {TOPK}
+          {/* ✅ 关键：中间这层必须是 min-h-0，才能让子列 overflow-y-auto 生效 */}
+          <div className="flex-1 grid grid-cols-12 bg-[#030712] rounded-b-[2rem] overflow-hidden min-h-0">
+            {/* Left: ✅ 加滚轮 */}
+            <div className="col-span-12 lg:col-span-4 border-b lg:border-b-0 lg:border-r border-white/10 min-h-0">
+              <div className="h-full overflow-y-auto p-7">
+                <div className="rounded-[1.6rem] border border-white/10 bg-white/5 p-6">
+                  <div className="flex items-center justify-between">
+                    <div className="text-[12px] font-black text-gray-200">计算路径（示意）</div>
+                    <div className="text-[10px] font-mono text-gray-500 uppercase tracking-widest">
+                      input {N_IN.toLocaleString()} → shortlist {TOPK}
+                    </div>
+                  </div>
+
+                  <div className="mt-5 space-y-4">
+                    <FlowStep
+                      icon={<Boxes className="w-4 h-4 text-blue-300" />}
+                      title="输入特征"
+                      desc="用户/上下文 + 内容特征 + 召回粗信号（置信度、新鲜度等）"
+                    />
+                    <FlowArrow />
+                    <FlowStep
+                      icon={<GitBranch className="w-4 h-4 text-purple-300" />}
+                      title="表示学习 / 交叉建模"
+                      desc="将稀疏与连续特征映射到统一表示，并建模交互关系"
+                      accent="purple"
+                    />
+                    <FlowArrow />
+                    <FlowStep
+                      icon={<Radar className="w-4 h-4 text-cyan-300" />}
+                      title="多任务预测（多 Head）"
+                      desc="输出点击、观看、互动、满意度等多维分值"
+                      accent="cyan"
+                    />
+                    <FlowArrow />
+                    <FlowStep
+                      icon={<ShieldAlert className="w-4 h-4 text-yellow-300" />}
+                      title="门控与截断"
+                      desc="风险过滤/降权后，按融合分截断形成短名单"
+                      accent="yellow"
+                    />
+                  </div>
+
+                  <div className="mt-6 rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="p-2 rounded-xl bg-blue-500/15 border border-blue-400/20">
+                        <Info className="w-4 h-4 text-blue-300" />
+                      </div>
+                      <div className="text-[11px] text-gray-400 leading-relaxed">
+                        本阶段产物是<strong className="text-gray-200">可用短名单</strong>，用于下游编排；
+                        不直接定义最终展示顺序，从而避免与后续策略层重复。
+                      </div>
+                    </div>
                   </div>
                 </div>
 
-                <div className="mt-5 space-y-4">
-                  <FlowStep
-                    icon={<Boxes className="w-4 h-4 text-blue-300" />}
-                    title="输入特征"
-                    desc="用户/上下文 + 内容特征 + 召回粗信号（置信度、新鲜度等）"
-                  />
-                  <FlowArrow />
-                  <FlowStep
-                    icon={<GitBranch className="w-4 h-4 text-purple-300" />}
-                    title="表示学习 / 交叉建模"
-                    desc="将稀疏与连续特征映射到统一表示，并建模交互关系"
-                    accent="purple"
-                  />
-                  <FlowArrow />
-                  <FlowStep
-                    icon={<Radar className="w-4 h-4 text-cyan-300" />}
-                    title="多任务预测（多 Head）"
-                    desc="输出点击、观看、互动、满意度等多维分值"
-                    accent="cyan"
-                  />
-                  <FlowArrow />
-                  <FlowStep
-                    icon={<ShieldAlert className="w-4 h-4 text-yellow-300" />}
-                    title="门控与截断"
-                    desc="风险过滤/降权后，按融合分截断形成短名单"
-                    accent="yellow"
-                  />
+                <div className="mt-5 grid grid-cols-2 gap-4">
+                  <MiniStat label="过滤（high）" value={`${metrics.filteredN}`} tone="bad" />
+                  <MiniStat label="降权（mid）" value={`${metrics.downrankN}`} tone="mid" />
+                  <MiniStat label="通过（pass）" value={`${metrics.passN}`} tone="good" />
+                  <MiniStat label="短名单占比" value={`${Math.round((TOPK / N_IN) * 1000) / 10}%`} tone="good" />
                 </div>
 
-                <div className="mt-6 rounded-2xl border border-white/10 bg-black/20 p-4">
-                  <div className="flex items-start gap-3">
-                    <div className="p-2 rounded-xl bg-blue-500/15 border border-blue-400/20">
-                      <Info className="w-4 h-4 text-blue-300" />
-                    </div>
-                    <div className="text-[11px] text-gray-400 leading-relaxed">
-                      本阶段产物是<strong className="text-gray-200">可用短名单</strong>，用于下游编排；
-                      不直接定义最终展示顺序，从而避免与后续策略层重复。
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-5 grid grid-cols-2 gap-4">
-                <MiniStat label="过滤（high）" value={`${metrics.filteredN}`} tone="bad" />
-                <MiniStat label="降权（mid）" value={`${metrics.downrankN}`} tone="mid" />
-                <MiniStat label="通过（pass）" value={`${metrics.passN}`} tone="good" />
-                <MiniStat label="短名单占比" value={`${Math.round((TOPK / N_IN) * 1000) / 10}%`} tone="good" />
+                <div className="h-4" />
               </div>
             </div>
 
-            {/* Middle: 可滚动解释区 */}
-            <div className="col-span-12 lg:col-span-4 border-b lg:border-b-0 lg:border-r border-white/10 overflow-y-auto">
+            {/* Middle: 已经有滚轮，但也补上 min-h-0 结构更稳 */}
+            <div className="col-span-12 lg:col-span-4 border-b lg:border-b-0 lg:border-r border-white/10 min-h-0 overflow-y-auto">
               <div className="p-7 space-y-6">
                 <SectionCard
                   title="焦点候选：输入 → 多任务输出 → 融合/门控"
@@ -367,8 +372,8 @@ const DeepRanking: React.FC = () => {
               </div>
             </div>
 
-            {/* Right: 输出摘要（不做“最终排序列表”） */}
-            <div className="col-span-12 lg:col-span-4 p-7">
+            {/* Right: 不变 */}
+            <div className="col-span-12 lg:col-span-4 p-7 min-h-0 overflow-y-auto">
               <div className="rounded-[1.6rem] border border-white/10 bg-white/5 p-6">
                 <div className="flex items-center justify-between">
                   <div className="text-[12px] font-black text-gray-200">本阶段输出</div>
@@ -401,6 +406,7 @@ const DeepRanking: React.FC = () => {
                 <MiniStat label="推理时延" value={`${metrics.latencyMs}ms`} />
                 <MiniStat label="短名单均分" value={`${metrics.avgShort}`} tone="good" />
               </div>
+              <div className="h-4" />
             </div>
           </div>
         </div>
