@@ -17,6 +17,8 @@ type ScoredCandidate = Candidate & {
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
 const round1 = (v: number) => Math.round(v * 10) / 10;
 
+const HEADER_H = 92; // px，和你现在 header 视觉高度接近（用于 sticky 计算）
+
 const StrategyIntervention: React.FC = () => {
   const candidates: Candidate[] = useMemo(
     () => [
@@ -68,12 +70,17 @@ const StrategyIntervention: React.FC = () => {
   const bizAngle = activeScore.biz * 60;
   const ecoAngle = activeScore.eco * 60;
 
+  const stickyTop = `${HEADER_H}px`;
+  const stickyH = `calc(100dvh - ${HEADER_H}px - 24px)`; // 24px 给一点下边距缓冲
+
   return (
-    <div className="w-full h-[100dvh] overflow-hidden flex items-start justify-center px-6 md:px-10 py-6">
+    // ✅ 整体页面滚动：中间随页面滚动展示完整内容
+    <div className="w-full h-[100dvh] overflow-y-auto bg-transparent flex items-start justify-center px-6 md:px-10 py-6">
       <div className="w-full max-w-[1500px]">
-        <div className="glass rounded-[2rem] border border-white/10 overflow-hidden shadow-[0_0_70px_rgba(236,72,153,0.12)]">
-          {/* Header */}
-          <div className="px-8 py-5 flex items-center justify-between border-b border-white/10 bg-black/30">
+        {/* ✅ 不用 overflow-hidden，避免 sticky 失效；圆角仍保留 */}
+        <div className="glass rounded-[2rem] border border-white/10 shadow-[0_0_70px_rgba(236,72,153,0.12)] bg-transparent">
+          {/* Header（保持原样，可选 sticky；这里用 sticky 更稳） */}
+          <div className="sticky top-0 z-20 px-8 py-5 flex items-center justify-between border-b border-white/10 bg-black/60 backdrop-blur">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-2xl bg-pink-500/15 border border-pink-500/25 flex items-center justify-center">
                 <ShieldCheck className="w-5 h-5 text-pink-400" />
@@ -92,56 +99,63 @@ const StrategyIntervention: React.FC = () => {
             </div>
           </div>
 
-          {/* Main */}
-          <div className="relative grid grid-cols-12 bg-[#030712] h-[calc(100dvh-140px)] min-h-[520px]">
-            {/* Left: Candidates (可滚动) */}
-            <div className="col-span-12 lg:col-span-4 border-b lg:border-b-0 lg:border-r border-white/10 flex flex-col min-h-0">
-              <div className="p-8 pb-4">
-                <div className="flex items-center justify-between">
-                  <div className="text-sm font-black text-gray-200">候选内容</div>
-                  <div className="text-[10px] font-mono text-gray-500 uppercase tracking-widest">base score</div>
-                </div>
-              </div>
+          {/* Main：不再锁死高度，让页面可滚动；左右用 sticky 固定 + 内部滚动 */}
+          <div className="relative grid grid-cols-12 bg-[#030712] rounded-b-[2rem]">
+            {/* Left：候选内容（✅ sticky + 内部滚动；页面滚动时不动） */}
+            <div className="col-span-12 lg:col-span-4 lg:border-r border-white/10">
+              <div
+                className="lg:sticky z-10"
+                style={{ top: stickyTop, height: stickyH }}
+              >
+                <div className="h-full border-b lg:border-b-0 border-white/10 bg-[#030712]">
+                  <div className="p-8 pb-4">
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm font-black text-gray-200">候选内容</div>
+                      <div className="text-[10px] font-mono text-gray-500 uppercase tracking-widest">base score</div>
+                    </div>
+                  </div>
 
-              <div className="px-8 pb-8 overflow-y-auto min-h-0 pr-6">
-                <div className="space-y-3">
-                  {candidates.map((c, idx) => {
-                    const isActive = idx === activeIdx;
-                    return (
-                      <div
-                        key={c.id}
-                        className={`rounded-2xl border p-4 transition-all ${
-                          isActive
-                            ? 'border-pink-500/50 bg-pink-500/10 shadow-[0_0_25px_rgba(236,72,153,0.18)]'
-                            : 'border-white/10 bg-white/5 hover:bg-white/7'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="font-bold text-white">{c.title}</div>
-                          <div className="text-[12px] font-mono text-gray-200">{round1(c.base)}</div>
-                        </div>
-
-                        <div className="mt-3 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                  <div className="px-8 pb-8 overflow-y-auto h-[calc(100%-88px)] pr-6">
+                    <div className="space-y-3">
+                      {candidates.map((c, idx) => {
+                        const isActive = idx === activeIdx;
+                        return (
                           <div
-                            className="h-full rounded-full bg-gradient-to-r from-cyan-400/80 to-blue-500/80"
-                            style={{ width: `${clamp(c.base, 0, 100)}%` }}
-                          />
-                        </div>
+                            key={c.id}
+                            className={`rounded-2xl border p-4 transition-all ${
+                              isActive
+                                ? 'border-pink-500/50 bg-pink-500/10 shadow-[0_0_25px_rgba(236,72,153,0.18)]'
+                                : 'border-white/10 bg-white/5 hover:bg-white/7'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="font-bold text-white">{c.title}</div>
+                              <div className="text-[12px] font-mono text-gray-200">{round1(c.base)}</div>
+                            </div>
 
-                        <div className="mt-3 text-[10px] font-mono text-gray-500 uppercase tracking-widest">
-                          input to strategy layer
-                        </div>
-                      </div>
-                    );
-                  })}
+                            <div className="mt-3 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                              <div
+                                className="h-full rounded-full bg-gradient-to-r from-cyan-400/80 to-blue-500/80"
+                                style={{ width: `${clamp(c.base, 0, 100)}%` }}
+                              />
+                            </div>
+
+                            <div className="mt-3 text-[10px] font-mono text-gray-500 uppercase tracking-widest">
+                              input to strategy layer
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* Middle: Strategy Layer (✅ 现在中间也可独立滚动) */}
-            <div className="col-span-12 lg:col-span-4 border-b lg:border-b-0 lg:border-r border-white/10 flex flex-col min-h-0 relative">
-              {/* 背景动画层保持在中间列，但不随着滚动出界 */}
-              <svg viewBox="0 0 900 520" className="absolute inset-0 w-full h-full pointer-events-none">
+            {/* Middle：策略层（✅ 跟随页面滚动；不再单独滚动） */}
+            <div className="col-span-12 lg:col-span-4 lg:border-r border-white/10 relative">
+              {/* Flow Lines + Particles（跟随中间区域高度展示） */}
+              <svg viewBox="0 0 900 520" className="absolute inset-0 w-full h-[520px] pointer-events-none">
                 <defs>
                   <filter id="glowPink">
                     <feGaussianBlur stdDeviation="3.2" result="coloredBlur" />
@@ -152,8 +166,18 @@ const StrategyIntervention: React.FC = () => {
                   </filter>
                 </defs>
 
-                <path d="M 70 260 C 200 260, 250 260, 320 260" fill="none" stroke="rgba(236,72,153,0.18)" strokeWidth="3" />
-                <path d="M 580 260 C 650 260, 700 260, 830 260" fill="none" stroke="rgba(236,72,153,0.18)" strokeWidth="3" />
+                <path
+                  d="M 70 260 C 200 260, 250 260, 320 260"
+                  fill="none"
+                  stroke="rgba(236,72,153,0.18)"
+                  strokeWidth="3"
+                />
+                <path
+                  d="M 580 260 C 650 260, 700 260, 830 260"
+                  fill="none"
+                  stroke="rgba(236,72,153,0.18)"
+                  strokeWidth="3"
+                />
 
                 <AnimatePresence mode="wait">
                   <motion.circle
@@ -184,8 +208,7 @@ const StrategyIntervention: React.FC = () => {
                 </AnimatePresence>
               </svg>
 
-              {/* ✅ 中间列内部滚动区域 */}
-              <div className="relative z-10 p-8 overflow-y-auto min-h-0 flex items-center justify-center">
+              <div className="relative z-10 p-8 flex items-start justify-center">
                 <div className="w-full max-w-sm">
                   <div className="text-center mb-6">
                     <div className="text-[10px] font-mono text-pink-300/80 tracking-widest uppercase">strategy layer</div>
@@ -228,72 +251,83 @@ const StrategyIntervention: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* ✅ 给滚动一个“底部缓冲”，避免最后一块贴边不好看 */}
-                  <div className="h-6" />
+                  {/* ✅ 如果你屏幕很矮，这个留白会让你更容易滚到“完整看完” */}
+                  <div className="h-10" />
                 </div>
               </div>
             </div>
 
-            {/* Right: Final ranking (可滚动) */}
-            <div className="col-span-12 lg:col-span-4 border-white/10 flex flex-col min-h-0">
-              <div className="p-8 pb-4">
-                <div className="flex items-center justify-between">
-                  <div className="text-sm font-black text-gray-200">最终排序</div>
-                  <div className="text-[10px] font-mono text-gray-500 uppercase tracking-widest">final score</div>
-                </div>
-              </div>
+            {/* Right：最终排序（✅ sticky + 内部滚动；页面滚动时不动） */}
+            <div className="col-span-12 lg:col-span-4">
+              <div
+                className="lg:sticky z-10"
+                style={{ top: stickyTop, height: stickyH }}
+              >
+                <div className="h-full bg-[#030712]">
+                  <div className="p-8 pb-4">
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm font-black text-gray-200">最终排序</div>
+                      <div className="text-[10px] font-mono text-gray-500 uppercase tracking-widest">final score</div>
+                    </div>
+                  </div>
 
-              <div className="px-8 pb-8 overflow-y-auto min-h-0 pr-6">
-                <div className="space-y-3">
-                  {sorted.map((c, rank) => {
-                    const isActive = c.id === active.id;
-                    return (
-                      <motion.div
-                        key={c.id}
-                        layout
-                        className={`rounded-2xl border p-4 transition-all ${
-                          isActive ? 'border-pink-500/50 bg-pink-500/10' : 'border-white/10 bg-white/5 hover:bg-white/7'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-gray-300 font-black">
-                              #{rank + 1}
+                  <div className="px-8 pb-8 overflow-y-auto h-[calc(100%-88px)] pr-6">
+                    <div className="space-y-3">
+                      {sorted.map((c, rank) => {
+                        const isActive = c.id === active.id;
+                        return (
+                          <motion.div
+                            key={c.id}
+                            layout
+                            className={`rounded-2xl border p-4 transition-all ${
+                              isActive ? 'border-pink-500/50 bg-pink-500/10' : 'border-white/10 bg-white/5 hover:bg-white/7'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-gray-300 font-black">
+                                  #{rank + 1}
+                                </div>
+                                <div className="font-bold text-white">{c.title}</div>
+                                {rank === 0 && (
+                                  <span className="text-[10px] font-mono uppercase tracking-widest text-yellow-300/90 flex items-center gap-1">
+                                    <TrendingUp className="w-3 h-3" /> top
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="text-[12px] font-mono text-gray-200">{round1(c.final)}</div>
                             </div>
-                            <div className="font-bold text-white">{c.title}</div>
-                            {rank === 0 && (
-                              <span className="text-[10px] font-mono uppercase tracking-widest text-yellow-300/90 flex items-center gap-1">
-                                <TrendingUp className="w-3 h-3" /> top
+
+                            <div className="mt-3 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                              <div
+                                className="h-full rounded-full bg-gradient-to-r from-emerald-400/70 to-cyan-400/70"
+                                style={{ width: `${clamp(c.final, 0, 100)}%` }}
+                              />
+                            </div>
+
+                            <div className="mt-3 flex items-center justify-between text-[10px] font-mono text-gray-500 uppercase">
+                              <span>base {round1(c.base)}</span>
+                              <span>
+                                +biz {round1(weights.biz * c.biz)} / +eco {round1(weights.eco * c.eco)}
                               </span>
-                            )}
-                          </div>
-
-                          <div className="text-[12px] font-mono text-gray-200">{round1(c.final)}</div>
-                        </div>
-
-                        <div className="mt-3 h-1.5 rounded-full bg-white/10 overflow-hidden">
-                          <div
-                            className="h-full rounded-full bg-gradient-to-r from-emerald-400/70 to-cyan-400/70"
-                            style={{ width: `${clamp(c.final, 0, 100)}%` }}
-                          />
-                        </div>
-
-                        <div className="mt-3 flex items-center justify-between text-[10px] font-mono text-gray-500 uppercase">
-                          <span>base {round1(c.base)}</span>
-                          <span>
-                            +biz {round1(weights.biz * c.biz)} / +eco {round1(weights.eco * c.eco)}
-                          </span>
-                        </div>
-                      </motion.div>
-                    );
-                  })}
+                            </div>
+                          </motion.div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
 
-          <div className="h-6 bg-[#030712]" />
+            {/* 底部留白：让页面滚动更自然（中间可以滚到更下面） */}
+            <div className="col-span-12 h-10" />
+          </div>
         </div>
+
+        {/* 外层页面底部留白 */}
+        <div className="h-6" />
       </div>
     </div>
   );
