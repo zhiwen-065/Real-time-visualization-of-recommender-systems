@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import {
   Brain,
   Boxes,
-  Route,
+  GitBranch,
   Radar,
   Timer,
   ShieldAlert,
@@ -234,7 +234,7 @@ const DeepRanking: React.FC = () => {
                   />
                   <FlowArrow />
                   <FlowStep
-                    icon={<Route className="w-4 h-4 text-purple-300" />}
+                    icon={<GitBranch className="w-4 h-4 text-purple-300" />}
                     title="表示学习 / 交叉建模"
                     desc="将稀疏与连续特征映射到统一表示，并建模交互关系"
                     accent="purple"
@@ -394,13 +394,6 @@ const DeepRanking: React.FC = () => {
                       </div>
                     </div>
                   </div>
-
-                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                    <div className="text-[10px] font-mono text-gray-500 uppercase tracking-widest">what it guarantees</div>
-                    <div className="mt-2 text-[12px] text-gray-300 leading-relaxed">
-                      在可控时延内对候选进行更细粒度打分与门控处理，保证“可用候选集合”的质量与规模。
-                    </div>
-                  </div>
                 </div>
               </div>
 
@@ -487,7 +480,11 @@ const DividerLabel: React.FC<{ text: string }> = ({ text }) => (
 );
 
 const Pill: React.FC<{ children: React.ReactNode; tone?: string }> = ({ children, tone }) => (
-  <span className={`px-2.5 py-1 rounded-full text-[10px] font-black border ${tone ?? "border-white/10 bg-white/5 text-gray-200"}`}>
+  <span
+    className={`px-2.5 py-1 rounded-full text-[10px] font-black border ${
+      tone ?? "border-white/10 bg-white/5 text-gray-200"
+    }`}
+  >
     {children}
   </span>
 );
@@ -524,7 +521,11 @@ const ScoreRow: React.FC<{
   );
 };
 
-const MiniStat: React.FC<{ label: string; value: string; tone?: "good" | "mid" | "bad" }> = ({ label, value, tone }) => {
+const MiniStat: React.FC<{ label: string; value: string; tone?: "good" | "mid" | "bad" }> = ({
+  label,
+  value,
+  tone,
+}) => {
   const color =
     tone === "good"
       ? "text-emerald-200"
