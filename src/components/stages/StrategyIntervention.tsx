@@ -27,13 +27,6 @@ const StrategyIntervention: React.FC = () => {
       { id: 4, title: '候选 4', base: 66.7 },
       { id: 5, title: '候选 5', base: 49.9 },
       { id: 6, title: '候选 6', base: 60.3 },
-      // ✅ 如果你候选更多，左右两列滚动更明显
-      { id: 7, title: '候选 7', base: 58.9 },
-      { id: 8, title: '候选 8', base: 73.1 },
-      { id: 9, title: '候选 9', base: 52.6 },
-      { id: 10, title: '候选 10', base: 64.2 },
-      { id: 11, title: '候选 11', base: 69.6 },
-      { id: 12, title: '候选 12', base: 57.0 },
     ],
     []
   );
