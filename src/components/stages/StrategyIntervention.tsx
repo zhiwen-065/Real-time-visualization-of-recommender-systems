@@ -18,7 +18,6 @@ const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(ma
 const round1 = (v: number) => Math.round(v * 10) / 10;
 
 const StrategyIntervention: React.FC = () => {
-  // 1) 左侧候选（你可替换 title / base 为你想要的）
   const candidates: Candidate[] = useMemo(
     () => [
       { id: 1, title: '候选 1', base: 62.4 },
@@ -31,32 +30,29 @@ const StrategyIntervention: React.FC = () => {
     []
   );
 
-  // 2) 当前“正在过策略层”的候选
   const [activeIdx, setActiveIdx] = useState(0);
 
-  // ✅ 3) 自动演示节拍：从 2.2s 改为更容易看清的 4.2s
+  // ✅ 更慢一点：4.8s
   useEffect(() => {
     const interval = setInterval(() => {
       setActiveIdx((i) => (i + 1) % candidates.length);
-    }, 4200);
+    }, 4800);
     return () => clearInterval(interval);
   }, [candidates.length]);
 
-  // 4) 一个时间变量，让商业/生态打分看起来在“动态计算”
   const [t, setT] = useState(0);
   useEffect(() => {
     const tick = setInterval(() => setT((x) => x + 1), 250);
     return () => clearInterval(tick);
   }, []);
 
-  const weights = { biz: 10, eco: 8 }; // 商业、生态影响权重（你可调）
+  const weights = { biz: 10, eco: 8 };
 
-  // 5) 生成每个候选的商业/生态分（-1~1），并得到最终分
   const scored: ScoredCandidate[] = useMemo(() => {
     return candidates.map((c) => {
       const phase = c.id * 0.9;
-      const biz = Math.sin(t / 4 + phase) * 0.8; // [-0.8, 0.8]
-      const eco = Math.cos(t / 5 + phase) * 0.8; // [-0.8, 0.8]
+      const biz = Math.sin(t / 4 + phase) * 0.8;
+      const eco = Math.cos(t / 5 + phase) * 0.8;
       const final = clamp(c.base + weights.biz * biz + weights.eco * eco, 0, 100);
       return { ...c, biz, eco, final };
     });
@@ -65,17 +61,14 @@ const StrategyIntervention: React.FC = () => {
   const active = candidates[activeIdx];
   const activeScore = scored.find((x) => x.id === active.id)!;
 
-  // 6) 最终排序（右侧）
   const sorted = useMemo(() => {
     return [...scored].sort((a, b) => b.final - a.final);
   }, [scored]);
 
-  // 7) 指针角度：把 [-1..1] 映射到 [-60..60] 度
   const bizAngle = activeScore.biz * 60;
   const ecoAngle = activeScore.eco * 60;
 
   return (
-    // ✅ 页面整体只做“容器”滚动（保险），但主要滚动发生在左右列
     <div className="w-full h-[100dvh] overflow-hidden flex items-start justify-center px-6 md:px-10 py-6">
       <div className="w-full max-w-[1500px]">
         <div className="glass rounded-[2rem] border border-white/10 overflow-hidden shadow-[0_0_70px_rgba(236,72,153,0.12)]">
@@ -100,11 +93,9 @@ const StrategyIntervention: React.FC = () => {
           </div>
 
           {/* Main */}
-          {/* ✅ 关键：给主区域一个固定高度，让左右列能“内部滚动” */}
           <div className="relative grid grid-cols-12 bg-[#030712] h-[calc(100dvh-140px)] min-h-[520px]">
             {/* Left: Candidates (可滚动) */}
             <div className="col-span-12 lg:col-span-4 border-b lg:border-b-0 lg:border-r border-white/10 flex flex-col min-h-0">
-              {/* 左列头部固定 */}
               <div className="p-8 pb-4">
                 <div className="flex items-center justify-between">
                   <div className="text-sm font-black text-gray-200">候选内容</div>
@@ -112,7 +103,6 @@ const StrategyIntervention: React.FC = () => {
                 </div>
               </div>
 
-              {/* ✅ 左列内容滚动区域 */}
               <div className="px-8 pb-8 overflow-y-auto min-h-0 pr-6">
                 <div className="space-y-3">
                   {candidates.map((c, idx) => {
@@ -148,9 +138,9 @@ const StrategyIntervention: React.FC = () => {
               </div>
             </div>
 
-            {/* Middle: Strategy Layer (不滚动) */}
-            <div className="col-span-12 lg:col-span-4 p-8 border-b lg:border-b-0 lg:border-r border-white/10 relative flex items-center justify-center min-h-0">
-              {/* Flow Lines + Particles */}
+            {/* Middle: Strategy Layer (✅ 现在中间也可独立滚动) */}
+            <div className="col-span-12 lg:col-span-4 border-b lg:border-b-0 lg:border-r border-white/10 flex flex-col min-h-0 relative">
+              {/* 背景动画层保持在中间列，但不随着滚动出界 */}
               <svg viewBox="0 0 900 520" className="absolute inset-0 w-full h-full pointer-events-none">
                 <defs>
                   <filter id="glowPink">
@@ -194,42 +184,58 @@ const StrategyIntervention: React.FC = () => {
                 </AnimatePresence>
               </svg>
 
-              <div className="w-full max-w-sm">
-                <div className="text-center mb-6">
-                  <div className="text-[10px] font-mono text-pink-300/80 tracking-widest uppercase">strategy layer</div>
-                  <div className="text-3xl font-black text-white mt-2">策略层</div>
-                  <div className="text-sm text-gray-500 mt-2">
-                    对模型输出做<strong className="text-gray-300">约束 / 博弈 / 再排序</strong>
-                  </div>
-                </div>
-
-                <div className="space-y-6">
-                  <Dial title="商业" color="pink" value={activeScore.biz} angle={bizAngle} hint={`Δ = ${round1(weights.biz * activeScore.biz)}`} />
-                  <Dial title="生态" color="emerald" value={activeScore.eco} angle={ecoAngle} hint={`Δ = ${round1(weights.eco * activeScore.eco)}`} />
-                </div>
-
-                {/* Current candidate result */}
-                <div className="mt-8 rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <div className="text-[10px] font-mono text-gray-500 uppercase tracking-widest">current candidate</div>
-                  <div className="mt-2 flex items-center justify-between">
-                    <div className="font-bold text-white">{active.title}</div>
-                    <div className="text-[12px] font-mono text-gray-200">
-                      {round1(active.base)} → {round1(activeScore.final)}
+              {/* ✅ 中间列内部滚动区域 */}
+              <div className="relative z-10 p-8 overflow-y-auto min-h-0 flex items-center justify-center">
+                <div className="w-full max-w-sm">
+                  <div className="text-center mb-6">
+                    <div className="text-[10px] font-mono text-pink-300/80 tracking-widest uppercase">strategy layer</div>
+                    <div className="text-3xl font-black text-white mt-2">策略层</div>
+                    <div className="text-sm text-gray-500 mt-2">
+                      对模型输出做<strong className="text-gray-300">约束 / 博弈 / 再排序</strong>
                     </div>
                   </div>
-                  <div className="mt-3 h-1.5 rounded-full bg-white/10 overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-gradient-to-r from-pink-400/80 to-purple-500/80"
-                      style={{ width: `${clamp(activeScore.final, 0, 100)}%` }}
+
+                  <div className="space-y-6">
+                    <Dial
+                      title="商业"
+                      color="pink"
+                      value={activeScore.biz}
+                      angle={bizAngle}
+                      hint={`Δ = ${round1(weights.biz * activeScore.biz)}`}
+                    />
+                    <Dial
+                      title="生态"
+                      color="emerald"
+                      value={activeScore.eco}
+                      angle={ecoAngle}
+                      hint={`Δ = ${round1(weights.eco * activeScore.eco)}`}
                     />
                   </div>
+
+                  <div className="mt-8 rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <div className="text-[10px] font-mono text-gray-500 uppercase tracking-widest">current candidate</div>
+                    <div className="mt-2 flex items-center justify-between">
+                      <div className="font-bold text-white">{active.title}</div>
+                      <div className="text-[12px] font-mono text-gray-200">
+                        {round1(active.base)} → {round1(activeScore.final)}
+                      </div>
+                    </div>
+                    <div className="mt-3 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-pink-400/80 to-purple-500/80"
+                        style={{ width: `${clamp(activeScore.final, 0, 100)}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* ✅ 给滚动一个“底部缓冲”，避免最后一块贴边不好看 */}
+                  <div className="h-6" />
                 </div>
               </div>
             </div>
 
             {/* Right: Final ranking (可滚动) */}
             <div className="col-span-12 lg:col-span-4 border-white/10 flex flex-col min-h-0">
-              {/* 右列头部固定 */}
               <div className="p-8 pb-4">
                 <div className="flex items-center justify-between">
                   <div className="text-sm font-black text-gray-200">最终排序</div>
@@ -237,7 +243,6 @@ const StrategyIntervention: React.FC = () => {
                 </div>
               </div>
 
-              {/* ✅ 右列内容滚动区域 */}
               <div className="px-8 pb-8 overflow-y-auto min-h-0 pr-6">
                 <div className="space-y-3">
                   {sorted.map((c, rank) => {
@@ -287,7 +292,6 @@ const StrategyIntervention: React.FC = () => {
             </div>
           </div>
 
-          {/* Footer padding */}
           <div className="h-6 bg-[#030712]" />
         </div>
       </div>
@@ -325,15 +329,12 @@ const Dial: React.FC<{
       </div>
 
       <div className="mt-4 flex items-center gap-5">
-        {/* Circle dial */}
         <div className={`relative w-24 h-24 rounded-full border ${theme.ring} ${theme.shadow}`}>
           <div className="absolute inset-0 rounded-full border border-white/5" />
 
-          {/* simple ticks */}
           <div className="absolute left-1/2 top-1/2 w-[2px] h-[38px] -translate-x-1/2 -translate-y-full bg-white/10" />
           <div className="absolute left-1/2 top-1/2 w-[2px] h-[38px] -translate-x-1/2 bg-white/10" />
 
-          {/* Hand */}
           <motion.div
             animate={{ rotate: angle }}
             transition={{ type: 'spring', stiffness: 120, damping: 18 }}
@@ -350,7 +351,6 @@ const Dial: React.FC<{
           <div className="absolute left-1/2 top-1/2 w-2.5 h-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/50" />
         </div>
 
-        {/* Value bar */}
         <div className="flex-1">
           <div className="flex items-center justify-between text-[10px] font-mono text-gray-500 uppercase">
             <span>-1</span>
