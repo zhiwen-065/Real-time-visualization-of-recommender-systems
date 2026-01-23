@@ -27,6 +27,13 @@ const StrategyIntervention: React.FC = () => {
       { id: 4, title: '候选 4', base: 66.7 },
       { id: 5, title: '候选 5', base: 49.9 },
       { id: 6, title: '候选 6', base: 60.3 },
+      // ✅ 如果你候选更多，左右两列滚动更明显
+      { id: 7, title: '候选 7', base: 58.9 },
+      { id: 8, title: '候选 8', base: 73.1 },
+      { id: 9, title: '候选 9', base: 52.6 },
+      { id: 10, title: '候选 10', base: 64.2 },
+      { id: 11, title: '候选 11', base: 69.6 },
+      { id: 12, title: '候选 12', base: 57.0 },
     ],
     []
   );
@@ -34,11 +41,11 @@ const StrategyIntervention: React.FC = () => {
   // 2) 当前“正在过策略层”的候选
   const [activeIdx, setActiveIdx] = useState(0);
 
-  // 3) 用一个节拍让它自动演示（每 2.2s 换一个候选）
+  // ✅ 3) 自动演示节拍：从 2.2s 改为更容易看清的 4.2s
   useEffect(() => {
     const interval = setInterval(() => {
       setActiveIdx((i) => (i + 1) % candidates.length);
-    }, 5200);
+    }, 4200);
     return () => clearInterval(interval);
   }, [candidates.length]);
 
@@ -49,7 +56,7 @@ const StrategyIntervention: React.FC = () => {
     return () => clearInterval(tick);
   }, []);
 
-  const weights = { biz: 10, eco: 8 }; // 商业、生态影响权重（你可调大/调小）
+  const weights = { biz: 10, eco: 8 }; // 商业、生态影响权重（你可调）
 
   // 5) 生成每个候选的商业/生态分（-1~1），并得到最终分
   const scored: ScoredCandidate[] = useMemo(() => {
@@ -60,7 +67,7 @@ const StrategyIntervention: React.FC = () => {
       const final = clamp(c.base + weights.biz * biz + weights.eco * eco, 0, 100);
       return { ...c, biz, eco, final };
     });
-  }, [candidates, t]);
+  }, [candidates, t, weights.biz, weights.eco]);
 
   const active = candidates[activeIdx];
   const activeScore = scored.find((x) => x.id === active.id)!;
@@ -70,15 +77,14 @@ const StrategyIntervention: React.FC = () => {
     return [...scored].sort((a, b) => b.final - a.final);
   }, [scored]);
 
-  // 7) 指针角度：把 [-1..1] 映射到 [-60..60] 度（可理解为“方向/力度”）
+  // 7) 指针角度：把 [-1..1] 映射到 [-60..60] 度
   const bizAngle = activeScore.biz * 60;
   const ecoAngle = activeScore.eco * 60;
 
   return (
-    // ✅ 改动 1：外层容器允许纵向滚动 + 拉高可视高度
-    <div className="w-full h-[100dvh] overflow-y-auto flex items-start justify-center px-6 md:px-10 py-6">
-      {/* ✅ 改动 2：把整体宽度上限从 max-w-6xl 提升，并尽量吃满屏幕 */}
-      <div className="w-full max-w-[1400px]">
+    // ✅ 页面整体只做“容器”滚动（保险），但主要滚动发生在左右列
+    <div className="w-full h-[100dvh] overflow-hidden flex items-start justify-center px-6 md:px-10 py-6">
+      <div className="w-full max-w-[1500px]">
         <div className="glass rounded-[2rem] border border-white/10 overflow-hidden shadow-[0_0_70px_rgba(236,72,153,0.12)]">
           {/* Header */}
           <div className="px-8 py-5 flex items-center justify-between border-b border-white/10 bg-black/30">
@@ -101,50 +107,56 @@ const StrategyIntervention: React.FC = () => {
           </div>
 
           {/* Main */}
-          {/* ✅ 改动 3：不给 min-h 卡死，让内容按需撑开；同时保留你原来的 grid 和布局 */}
-          <div className="relative grid grid-cols-12 bg-[#030712]">
-            {/* Left: Candidates */}
-            <div className="col-span-12 lg:col-span-4 p-8 border-b lg:border-b-0 lg:border-r border-white/10">
-              <div className="flex items-center justify-between mb-6">
-                <div className="text-sm font-black text-gray-200">候选内容</div>
-                <div className="text-[10px] font-mono text-gray-500 uppercase tracking-widest">base score</div>
+          {/* ✅ 关键：给主区域一个固定高度，让左右列能“内部滚动” */}
+          <div className="relative grid grid-cols-12 bg-[#030712] h-[calc(100dvh-140px)] min-h-[520px]">
+            {/* Left: Candidates (可滚动) */}
+            <div className="col-span-12 lg:col-span-4 border-b lg:border-b-0 lg:border-r border-white/10 flex flex-col min-h-0">
+              {/* 左列头部固定 */}
+              <div className="p-8 pb-4">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-black text-gray-200">候选内容</div>
+                  <div className="text-[10px] font-mono text-gray-500 uppercase tracking-widest">base score</div>
+                </div>
               </div>
 
-              <div className="space-y-3">
-                {candidates.map((c, idx) => {
-                  const isActive = idx === activeIdx;
-                  return (
-                    <div
-                      key={c.id}
-                      className={`rounded-2xl border p-4 transition-all ${
-                        isActive
-                          ? 'border-pink-500/50 bg-pink-500/10 shadow-[0_0_25px_rgba(236,72,153,0.18)]'
-                          : 'border-white/10 bg-white/5 hover:bg-white/7'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="font-bold text-white">{c.title}</div>
-                        <div className="text-[12px] font-mono text-gray-200">{round1(c.base)}</div>
-                      </div>
+              {/* ✅ 左列内容滚动区域 */}
+              <div className="px-8 pb-8 overflow-y-auto min-h-0 pr-6">
+                <div className="space-y-3">
+                  {candidates.map((c, idx) => {
+                    const isActive = idx === activeIdx;
+                    return (
+                      <div
+                        key={c.id}
+                        className={`rounded-2xl border p-4 transition-all ${
+                          isActive
+                            ? 'border-pink-500/50 bg-pink-500/10 shadow-[0_0_25px_rgba(236,72,153,0.18)]'
+                            : 'border-white/10 bg-white/5 hover:bg-white/7'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="font-bold text-white">{c.title}</div>
+                          <div className="text-[12px] font-mono text-gray-200">{round1(c.base)}</div>
+                        </div>
 
-                      <div className="mt-3 h-1.5 rounded-full bg-white/10 overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-gradient-to-r from-cyan-400/80 to-blue-500/80"
-                          style={{ width: `${clamp(c.base, 0, 100)}%` }}
-                        />
-                      </div>
+                        <div className="mt-3 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-gradient-to-r from-cyan-400/80 to-blue-500/80"
+                            style={{ width: `${clamp(c.base, 0, 100)}%` }}
+                          />
+                        </div>
 
-                      <div className="mt-3 text-[10px] font-mono text-gray-500 uppercase tracking-widest">
-                        input to strategy layer
+                        <div className="mt-3 text-[10px] font-mono text-gray-500 uppercase tracking-widest">
+                          input to strategy layer
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
             </div>
 
-            {/* Middle: Strategy Layer */}
-            <div className="col-span-12 lg:col-span-4 p-8 border-b lg:border-b-0 lg:border-r border-white/10 relative flex items-center justify-center">
+            {/* Middle: Strategy Layer (不滚动) */}
+            <div className="col-span-12 lg:col-span-4 p-8 border-b lg:border-b-0 lg:border-r border-white/10 relative flex items-center justify-center min-h-0">
               {/* Flow Lines + Particles */}
               <svg viewBox="0 0 900 520" className="absolute inset-0 w-full h-full pointer-events-none">
                 <defs>
@@ -157,18 +169,8 @@ const StrategyIntervention: React.FC = () => {
                   </filter>
                 </defs>
 
-                <path
-                  d="M 70 260 C 200 260, 250 260, 320 260"
-                  fill="none"
-                  stroke="rgba(236,72,153,0.18)"
-                  strokeWidth="3"
-                />
-                <path
-                  d="M 580 260 C 650 260, 700 260, 830 260"
-                  fill="none"
-                  stroke="rgba(236,72,153,0.18)"
-                  strokeWidth="3"
-                />
+                <path d="M 70 260 C 200 260, 250 260, 320 260" fill="none" stroke="rgba(236,72,153,0.18)" strokeWidth="3" />
+                <path d="M 580 260 C 650 260, 700 260, 830 260" fill="none" stroke="rgba(236,72,153,0.18)" strokeWidth="3" />
 
                 <AnimatePresence mode="wait">
                   <motion.circle
@@ -179,7 +181,7 @@ const StrategyIntervention: React.FC = () => {
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1, offsetDistance: ['0%', '100%'] }}
                     exit={{ opacity: 0 }}
-                    transition={{ duration: 1.2, ease: 'easeInOut' }}
+                    transition={{ duration: 1.6, ease: 'easeInOut' }}
                     style={{ offsetPath: "path('M 70 260 C 200 260, 250 260, 320 260')" }}
                   />
                 </AnimatePresence>
@@ -193,7 +195,7 @@ const StrategyIntervention: React.FC = () => {
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1, offsetDistance: ['0%', '100%'] }}
                     exit={{ opacity: 0 }}
-                    transition={{ duration: 1.2, ease: 'easeInOut', delay: 0.9 }}
+                    transition={{ duration: 1.6, ease: 'easeInOut', delay: 1.05 }}
                     style={{ offsetPath: "path('M 580 260 C 650 260, 700 260, 830 260')" }}
                   />
                 </AnimatePresence>
@@ -232,67 +234,68 @@ const StrategyIntervention: React.FC = () => {
               </div>
             </div>
 
-            {/* Right: Final ranking */}
-            <div className="col-span-12 lg:col-span-4 p-8">
-              <div className="flex items-center justify-between mb-6">
-                <div className="text-sm font-black text-gray-200">最终排序</div>
-                <div className="text-[10px] font-mono text-gray-500 uppercase tracking-widest">final score</div>
+            {/* Right: Final ranking (可滚动) */}
+            <div className="col-span-12 lg:col-span-4 border-white/10 flex flex-col min-h-0">
+              {/* 右列头部固定 */}
+              <div className="p-8 pb-4">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-black text-gray-200">最终排序</div>
+                  <div className="text-[10px] font-mono text-gray-500 uppercase tracking-widest">final score</div>
+                </div>
               </div>
 
-              <div className="space-y-3">
-                {sorted.map((c, rank) => {
-                  const isActive = c.id === active.id;
-                  return (
-                    <motion.div
-                      key={c.id}
-                      layout
-                      className={`rounded-2xl border p-4 transition-all ${
-                        isActive ? 'border-pink-500/50 bg-pink-500/10' : 'border-white/10 bg-white/5 hover:bg-white/7'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-gray-300 font-black">
-                            #{rank + 1}
+              {/* ✅ 右列内容滚动区域 */}
+              <div className="px-8 pb-8 overflow-y-auto min-h-0 pr-6">
+                <div className="space-y-3">
+                  {sorted.map((c, rank) => {
+                    const isActive = c.id === active.id;
+                    return (
+                      <motion.div
+                        key={c.id}
+                        layout
+                        className={`rounded-2xl border p-4 transition-all ${
+                          isActive ? 'border-pink-500/50 bg-pink-500/10' : 'border-white/10 bg-white/5 hover:bg-white/7'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-gray-300 font-black">
+                              #{rank + 1}
+                            </div>
+                            <div className="font-bold text-white">{c.title}</div>
+                            {rank === 0 && (
+                              <span className="text-[10px] font-mono uppercase tracking-widest text-yellow-300/90 flex items-center gap-1">
+                                <TrendingUp className="w-3 h-3" /> top
+                              </span>
+                            )}
                           </div>
-                          <div className="font-bold text-white">{c.title}</div>
-                          {rank === 0 && (
-                            <span className="text-[10px] font-mono uppercase tracking-widest text-yellow-300/90 flex items-center gap-1">
-                              <TrendingUp className="w-3 h-3" /> top
-                            </span>
-                          )}
+
+                          <div className="text-[12px] font-mono text-gray-200">{round1(c.final)}</div>
                         </div>
 
-                        <div className="text-[12px] font-mono text-gray-200">{round1(c.final)}</div>
-                      </div>
+                        <div className="mt-3 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-gradient-to-r from-emerald-400/70 to-cyan-400/70"
+                            style={{ width: `${clamp(c.final, 0, 100)}%` }}
+                          />
+                        </div>
 
-                      <div className="mt-3 h-1.5 rounded-full bg-white/10 overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-gradient-to-r from-emerald-400/70 to-cyan-400/70"
-                          style={{ width: `${clamp(c.final, 0, 100)}%` }}
-                        />
-                      </div>
-
-                      <div className="mt-3 flex items-center justify-between text-[10px] font-mono text-gray-500 uppercase">
-                        <span>base {round1(c.base)}</span>
-                        <span>
-                          +biz {round1(weights.biz * c.biz)} / +eco {round1(weights.eco * c.eco)}
-                        </span>
-                      </div>
-                    </motion.div>
-                  );
-                })}
-              </div>
-
-              <div className="mt-6 text-[11px] text-gray-500 leading-relaxed">
-                商业/生态可以代表广告、活动、冷启、新作者保护、风控、治理、多样性等约束，
-                最终落到<strong className="text-gray-300">重排</strong>阶段影响 Top-K。
+                        <div className="mt-3 flex items-center justify-between text-[10px] font-mono text-gray-500 uppercase">
+                          <span>base {round1(c.base)}</span>
+                          <span>
+                            +biz {round1(weights.biz * c.biz)} / +eco {round1(weights.eco * c.eco)}
+                          </span>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           </div>
 
-          {/* ✅ 改动 4：底部留一点 padding，滚动时更舒服 */}
-          <div className="h-8 bg-[#030712]" />
+          {/* Footer padding */}
+          <div className="h-6 bg-[#030712]" />
         </div>
       </div>
     </div>
